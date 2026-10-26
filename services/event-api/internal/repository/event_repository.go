@@ -26,7 +26,14 @@ func (r *EventRepository) Create(
 	event model.Event,
 ) error {
 
-	query := `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer tx.Rollback(ctx)
+
+	eventQuery := `
 		INSERT INTO events (
 			event_id,
 			event_type,
@@ -37,9 +44,9 @@ func (r *EventRepository) Create(
 		VALUES ($1, $2, $3, $4, $5)
 	`
 
-	_, err := r.pool.Exec(
+	_, err = tx.Exec(
 		ctx,
-		query,
+		eventQuery,
 		event.EventID,
 		event.EventType,
 		event.Service,
@@ -54,6 +61,37 @@ func (r *EventRepository) Create(
 			return ErrEventAlreadyExists
 		}
 
+		return err
+	}
+
+	outboxQuery := `
+    	INSERT INTO outbox (
+        	event_id,
+         	event_type,
+          	service,
+           	timestamp,
+            topic,
+            payload
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+	`
+
+	_, err = tx.Exec(
+		ctx,
+		outboxQuery,
+		event.EventID,
+		event.EventType,
+		event.Service,
+		event.Timestamp,
+		"ops.events",
+		event.Payload,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
 
