@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: opspilot-postgres
+    environment:
+      POSTGRES_DB: opspilot
+      POSTGRES_USER: opspilot
+      POSTGRES_PASSWORD: opspilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  - postgres_data:/var/lib/postgresql/data
