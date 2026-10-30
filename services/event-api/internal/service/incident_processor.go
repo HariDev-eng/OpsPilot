@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/model"
+	"github.com/HariDev-eng/opspilot/services/event-api/internal/redis"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/repository"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,6 +18,7 @@ type IncidentProcessor struct {
 	processedRepository *repository.ProcessedEventRepository
 	incidentRepository  *repository.IncidentRepository
 	detector            *IncidentDetector
+	redisClient         *redis.Client
 }
 
 func NewIncidentProcessor(
@@ -24,6 +26,7 @@ func NewIncidentProcessor(
 	processedRepository *repository.ProcessedEventRepository,
 	incidentRepository *repository.IncidentRepository,
 	detector *IncidentDetector,
+	redisClient *redis.Client,
 ) *IncidentProcessor {
 
 	return &IncidentProcessor{
@@ -31,6 +34,7 @@ func NewIncidentProcessor(
 		processedRepository: processedRepository,
 		incidentRepository:  incidentRepository,
 		detector:            detector,
+		redisClient:         redisClient,
 	}
 }
 
@@ -141,9 +145,36 @@ func (p *IncidentProcessor) Process(
 		return err
 	}
 
-	// 8. Commit everything.
+	// 8. Read the final authoritative incident state
+	// BEFORE committing the transaction.
+	incident, err := p.incidentRepository.GetByIDTx(
+		ctx,
+		tx,
+		incidentID,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 9. Commit PostgreSQL transaction.
 	if err := tx.Commit(ctx); err != nil {
 		return err
+	}
+
+	// 10. Project authoritative PostgreSQL state into Redis.
+	state := redis.IncidentState{
+		IncidentID: incident.ID,
+		Service:    incident.Service,
+		Severity:   incident.Severity,
+		Status:     incident.Status,
+	}
+
+	if err := p.redisClient.SetIncidentState(ctx, state); err != nil {
+		log.Printf(
+			"failed to update incident state projection: incident_id=%d error=%v",
+			incident.ID,
+			err,
+		)
 	}
 
 	log.Printf(

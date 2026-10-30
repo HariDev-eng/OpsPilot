@@ -10,6 +10,7 @@ import (
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/handler"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/publisher"
+	redisStore "github.com/HariDev-eng/opspilot/services/event-api/internal/redis"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/repository"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/service"
 )
@@ -21,24 +22,50 @@ func main() {
 	}
 	defer pool.Close()
 
-	// Event dependencies
-	eventRepo := repository.NewEventRepository(pool)
-	eventService := service.NewEventService(eventRepo)
-	eventHandler := handler.NewEventHandler(eventService)
+	redisClient, err := redisStore.NewClient("localhost:6379")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer redisClient.Close()
 
+	// --------------------------------------------------
+	// Event dependencies
+	// --------------------------------------------------
+
+	eventRepo := repository.NewEventRepository(pool)
+
+	eventService := service.NewEventService(
+		eventRepo,
+	)
+
+	eventHandler := handler.NewEventHandler(
+		eventService,
+	)
+
+	// --------------------------------------------------
 	// Incident dependencies
-	incidentRepository := repository.NewIncidentRepository(pool)
+	// --------------------------------------------------
+
+	incidentRepository := repository.NewIncidentRepository(
+		pool,
+	)
 
 	incidentService := service.NewIncidentService(
 		incidentRepository,
+		redisClient,
 	)
 
 	incidentHandler := handler.NewIncidentHandler(
 		incidentService,
 	)
 
+	// --------------------------------------------------
 	// Outbox dependencies
-	outboxRepo := repository.NewOutboxRepository(pool)
+	// --------------------------------------------------
+
+	outboxRepo := repository.NewOutboxRepository(
+		pool,
+	)
 
 	kafkaProducer := kafka.NewProducer(
 		"localhost:9092",
@@ -54,12 +81,18 @@ func main() {
 		2*time.Second,
 	)
 
+	// --------------------------------------------------
 	// Start background publisher
+	// --------------------------------------------------
+
 	ctx := context.Background()
 
 	go outboxPublisher.Start(ctx)
 
+	// --------------------------------------------------
 	// HTTP server
+	// --------------------------------------------------
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc(
@@ -79,8 +112,7 @@ func main() {
 
 	log.Println("OpsPilot Event API running on :8080")
 
-	err = http.ListenAndServe(":8080", mux)
-	if err != nil {
+	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatal(err)
 	}
 }

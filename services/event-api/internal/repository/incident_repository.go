@@ -195,26 +195,123 @@ func (r *IncidentRepository) Resolve(
 	return nil
 }
 
+// EscalateSeverityTx escalates an incident:
+//
+// # HIGH → CRITICAL
+//
+// It intentionally does not allow downgrading an incident.
 func (r *IncidentRepository) EscalateSeverityTx(
 	ctx context.Context,
 	tx pgx.Tx,
 	incidentID int64,
 	severity string,
 ) error {
+
 	_, err := tx.Exec(
 		ctx,
 		`
 		UPDATE incidents
 		SET severity = $1
 		WHERE id = $2
-		  AND (
-			  severity = 'HIGH'
-			  AND $1 = 'CRITICAL'
-		  )
+		  AND severity = $3
+		  AND $1 = $4
 		`,
 		severity,
 		incidentID,
+		"HIGH",
+		"CRITICAL",
 	)
 
 	return err
+}
+
+// GetByIDTx retrieves the authoritative incident state
+// inside an existing PostgreSQL transaction.
+func (r *IncidentRepository) GetByIDTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	incidentID int64,
+) (*model.Incident, error) {
+
+	var incident model.Incident
+
+	err := tx.QueryRow(
+		ctx,
+		`
+		SELECT
+			id,
+			event_id,
+			service,
+			event_type,
+			severity,
+			status,
+			created_at,
+			acknowledged_at,
+			resolved_at
+		FROM incidents
+		WHERE id = $1
+		`,
+		incidentID,
+	).Scan(
+		&incident.ID,
+		&incident.EventID,
+		&incident.Service,
+		&incident.EventType,
+		&incident.Severity,
+		&incident.Status,
+		&incident.CreatedAt,
+		&incident.AcknowledgedAt,
+		&incident.ResolvedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &incident, nil
+}
+
+// GetByID retrieves the authoritative incident state
+// directly from PostgreSQL.
+func (r *IncidentRepository) GetByID(
+	ctx context.Context,
+	incidentID int64,
+) (*model.Incident, error) {
+
+	var incident model.Incident
+
+	err := r.pool.QueryRow(
+		ctx,
+		`
+		SELECT
+			id,
+			event_id,
+			service,
+			event_type,
+			severity,
+			status,
+			created_at,
+			acknowledged_at,
+			resolved_at
+		FROM incidents
+		WHERE id = $1
+		`,
+		incidentID,
+	).Scan(
+		&incident.ID,
+		&incident.EventID,
+		&incident.Service,
+		&incident.EventType,
+		&incident.Severity,
+		&incident.Status,
+		&incident.CreatedAt,
+		&incident.AcknowledgedAt,
+		&incident.ResolvedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &incident, nil
 }

@@ -84,6 +84,7 @@ func main() {
 		processedRepository,
 		incidentRepository,
 		incidentDetector,
+		redisClient,
 	)
 
 	// --------------------------------------------------

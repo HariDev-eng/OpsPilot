@@ -13,7 +13,6 @@ type Client struct {
 }
 
 func NewClient(address string) (*Client, error) {
-
 	client := redis.NewClient(&redis.Options{
 		Addr: address,
 	})
@@ -38,42 +37,57 @@ func (c *Client) Close() error {
 	return c.client.Close()
 }
 
-func (c *Client) RecordEvent(
+var slidingWindowScript = redis.NewScript(`
+local key = KEYS[1]
+local event_id = ARGV[1]
+local timestamp = tonumber(ARGV[2])
+local cutoff = tonumber(ARGV[3])
+local ttl_seconds = tonumber(ARGV[4])
+
+redis.call("ZADD", key, timestamp, event_id)
+
+redis.call(
+    "ZREMRANGEBYSCORE",
+    key,
+    "-inf",
+    cutoff
+)
+
+redis.call(
+    "EXPIRE",
+    key,
+    ttl_seconds
+)
+
+return redis.call("ZCARD", key)
+`)
+
+func (c *Client) RecordAndCountRecentEvents(
 	ctx context.Context,
 	key string,
 	eventID string,
 	timestamp time.Time,
-) error {
-
-	return c.client.ZAdd(
-		ctx,
-		key,
-		redis.Z{
-			Score:  float64(timestamp.UnixMilli()),
-			Member: eventID,
-		},
-	).Err()
-}
-
-func (c *Client) CountRecentEvents(
-	ctx context.Context,
-	key string,
 	window time.Duration,
-	now time.Time,
 ) (int64, error) {
 
-	cutoff := now.Add(-window).UnixMilli()
+	now := timestamp.UnixMilli()
+	cutoff := timestamp.Add(-window).UnixMilli()
 
-	_, err := c.client.ZRemRangeByScore(
+	ttl := int64(window.Seconds()) + 5
+
+	result, err := slidingWindowScript.Run(
 		ctx,
-		key,
-		"-inf",
-		fmt.Sprintf("%d", cutoff),
-	).Result()
+		c.client,
+		[]string{key},
+		eventID,
+		now,
+		cutoff,
+		ttl,
+	).Int64()
 
 	if err != nil {
 		return 0, err
 	}
 
-	return c.client.ZCard(ctx, key).Result()
+	return result, nil
 }

@@ -45,21 +45,14 @@ func (d *IncidentDetector) Detect(
 
 	key := "incident:failures:" + event.Service
 
-	if err := d.redis.RecordEvent(
+	count, err := d.redis.RecordAndCountRecentEvents(
 		ctx,
 		key,
 		event.EventID,
 		event.Timestamp,
-	); err != nil {
-		return IncidentDetectionResult{}, err
-	}
-
-	count, err := d.redis.CountRecentEvents(
-		ctx,
-		key,
 		failureWindow,
-		event.Timestamp,
 	)
+
 	if err != nil {
 		return IncidentDetectionResult{}, err
 	}
