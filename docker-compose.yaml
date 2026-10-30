@@ -44,5 +44,12 @@ services:
 
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
+  redis:
+    image: redis:7
+    container_name: opspilot-redis
+
+    ports:
+      - "6379:6379"
+
 volumes:
   postgres_data:

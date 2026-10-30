@@ -10,6 +10,7 @@ import (
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/consumer"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/database"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
+	redisStore "github.com/HariDev-eng/opspilot/services/event-api/internal/redis"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/repository"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/service"
 )
@@ -50,6 +51,16 @@ func main() {
 	}
 	defer pool.Close()
 
+	redisClient, err := redisStore.NewClient("localhost:6379")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer redisClient.Close()
+
+	incidentDetector := service.NewIncidentDetector(
+		redisClient,
+	)
+
 	// --------------------------------------------------
 	// Processed Event Repository
 	// --------------------------------------------------
@@ -62,7 +73,7 @@ func main() {
 	// Incident Repository
 	// --------------------------------------------------
 
-	incidentRepository := repository.NewIncidentRepository()
+	incidentRepository := repository.NewIncidentRepository(pool)
 
 	// --------------------------------------------------
 	// Incident Processor
@@ -72,6 +83,7 @@ func main() {
 		pool,
 		processedRepository,
 		incidentRepository,
+		incidentDetector,
 	)
 
 	// --------------------------------------------------

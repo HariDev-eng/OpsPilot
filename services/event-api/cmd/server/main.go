@@ -26,6 +26,17 @@ func main() {
 	eventService := service.NewEventService(eventRepo)
 	eventHandler := handler.NewEventHandler(eventService)
 
+	// Incident dependencies
+	incidentRepository := repository.NewIncidentRepository(pool)
+
+	incidentService := service.NewIncidentService(
+		incidentRepository,
+	)
+
+	incidentHandler := handler.NewIncidentHandler(
+		incidentService,
+	)
+
 	// Outbox dependencies
 	outboxRepo := repository.NewOutboxRepository(pool)
 
@@ -54,6 +65,16 @@ func main() {
 	mux.HandleFunc(
 		"POST /api/v1/events",
 		eventHandler.CreateEvent,
+	)
+
+	mux.HandleFunc(
+		"POST /api/v1/incidents/{id}/acknowledge",
+		incidentHandler.Acknowledge,
+	)
+
+	mux.HandleFunc(
+		"POST /api/v1/incidents/{id}/resolve",
+		incidentHandler.Resolve,
 	)
 
 	log.Println("OpsPilot Event API running on :8080")
