@@ -97,3 +97,57 @@ func (r *EventRepository) Create(
 
 	return nil
 }
+
+func (r *EventRepository) GetByIncidentID(
+	ctx context.Context,
+	incidentID int64,
+) ([]model.Event, error) {
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			e.event_id,
+			e.event_type,
+			e.service,
+			e.timestamp,
+			e.payload,
+			e.created_at
+		FROM events e
+		INNER JOIN incident_events ie
+			ON ie.event_id = e.event_id
+		WHERE ie.incident_id = $1
+		ORDER BY e.timestamp ASC
+	`, incidentID)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var events []model.Event
+
+	for rows.Next() {
+		var event model.Event
+
+		err := rows.Scan(
+			&event.EventID,
+			&event.EventType,
+			&event.Service,
+			&event.Timestamp,
+			&event.Payload,
+			&event.CreatedAt,
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}
