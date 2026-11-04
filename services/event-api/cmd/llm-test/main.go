@@ -9,6 +9,7 @@ import (
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/ai"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/database"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/repository"
+	"github.com/HariDev-eng/opspilot/services/event-api/internal/service"
 )
 
 func main() {
@@ -29,6 +30,8 @@ func main() {
 	incidentRepository := repository.NewIncidentRepository(pool)
 	eventRepository := repository.NewEventRepository(pool)
 	knowledgeRepository := repository.NewKnowledgeRepository(pool)
+
+	actionRepository := repository.NewActionRepository(pool)
 
 	// Embedding provider for RAG
 	embeddingProvider := ai.NewOllamaEmbeddingProvider(
@@ -82,4 +85,41 @@ func main() {
 
 	log.Println("AI Incident Analysis:")
 	log.Println(string(data))
+
+	// --------------------------------------------------
+	// Persist AI recommendations
+	// --------------------------------------------------
+
+	actionService := service.NewActionService(
+		pool,
+		actionRepository,
+	)
+
+	actions, err := actionService.CreateFromAnalysis(
+		ctx,
+		incidentID,
+		analysis,
+	)
+	if err != nil {
+		log.Fatalf(
+			"failed to persist recommended actions: %v",
+			err,
+		)
+	}
+
+	log.Printf(
+		"Successfully processed %d recommended actions",
+		len(actions),
+	)
+
+	for _, action := range actions {
+		log.Printf(
+			"Action ID=%d Type=%s Status=%s ApprovalRequired=%t Description=%s",
+			action.ID,
+			action.ActionType,
+			action.Status,
+			action.RequiresApproval,
+			action.Description,
+		)
+	}
 }

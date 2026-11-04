@@ -60,6 +60,21 @@ func main() {
 	)
 
 	// --------------------------------------------------
+	// Action dependencies
+	// --------------------------------------------------
+
+	actionRepository := repository.NewActionRepository(pool)
+
+	actionService := service.NewActionService(
+		pool,
+		actionRepository,
+	)
+
+	actionHandler := handler.NewActionHandler(
+		actionService,
+	)
+
+	// --------------------------------------------------
 	// Outbox dependencies
 	// --------------------------------------------------
 
@@ -109,6 +124,17 @@ func main() {
 		"POST /api/v1/incidents/{id}/resolve",
 		incidentHandler.Resolve,
 	)
+
+	mux.HandleFunc(
+		"POST /api/v1/actions/{id}/approve",
+		actionHandler.Approve,
+	)
+
+	mux.HandleFunc(
+		"POST /api/v1/actions/{id}/reject",
+		actionHandler.Reject,
+	)
+	mux.HandleFunc("POST /api/v1/actions/{id}/reconcile", actionHandler.Reconcile)
 
 	log.Println("OpsPilot Event API running on :8080")
 
