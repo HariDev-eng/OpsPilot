@@ -315,3 +315,95 @@ func (r *IncidentRepository) GetByID(
 
 	return &incident, nil
 }
+
+func (r *IncidentRepository) List(
+	ctx context.Context,
+	limit int,
+) ([]model.Incident, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			id,
+			event_id,
+			service,
+			event_type,
+			severity,
+			status,
+			created_at,
+			acknowledged_at,
+			resolved_at
+		FROM incidents
+		ORDER BY created_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	incidents := make([]model.Incident, 0)
+
+	for rows.Next() {
+		var incident model.Incident
+
+		err := rows.Scan(
+			&incident.ID,
+			&incident.EventID,
+			&incident.Service,
+			&incident.EventType,
+			&incident.Severity,
+			&incident.Status,
+			&incident.CreatedAt,
+			&incident.AcknowledgedAt,
+			&incident.ResolvedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		incidents = append(incidents, incident)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return incidents, nil
+}
+
+func (r *IncidentRepository) GetDashboardSummary(
+	ctx context.Context,
+) (*model.DashboardSummary, error) {
+	var summary model.DashboardSummary
+
+	err := r.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (WHERE severity = 'CRITICAL'),
+			COUNT(*) FILTER (WHERE severity = 'HIGH'),
+			COUNT(*) FILTER (WHERE severity = 'MEDIUM'),
+			COUNT(*) FILTER (WHERE severity = 'LOW'),
+			COUNT(*) FILTER (WHERE status = 'OPEN'),
+			COUNT(*) FILTER (WHERE status = 'ACKNOWLEDGED'),
+			COUNT(*) FILTER (WHERE status = 'RESOLVED')
+		FROM incidents
+	`).Scan(
+		&summary.TotalIncidents,
+		&summary.CriticalIncidents,
+		&summary.HighIncidents,
+		&summary.MediumIncidents,
+		&summary.LowIncidents,
+		&summary.OpenIncidents,
+		&summary.AcknowledgedIncidents,
+		&summary.ResolvedIncidents,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &summary, nil
+}

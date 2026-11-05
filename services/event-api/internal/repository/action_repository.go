@@ -303,7 +303,7 @@ func (r *ActionRepository) ListByIncident(
 
 	defer rows.Close()
 
-	var actions []model.IncidentAction
+	actions := make([]model.IncidentAction, 0)
 
 	for rows.Next() {
 		action, err := scanIncidentAction(rows)

@@ -5,39 +5,38 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type Client struct {
-	client *redis.Client
+	client *goredis.Client
 }
 
 func NewClient(address string) (*Client, error) {
-	client := redis.NewClient(&redis.Options{
+	client := goredis.NewClient(&goredis.Options{
 		Addr: address,
 	})
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {
-		client.Close()
-
-		return nil, fmt.Errorf(
-			"failed to connect to redis: %w",
-			err,
-		)
+		_ = client.Close()
+		return nil, fmt.Errorf("failed to connect to redis: %w", err)
 	}
 
-	return &Client{
-		client: client,
-	}, nil
+	return &Client{client: client}, nil
+}
+
+func (c *Client) Ping(ctx context.Context) error {
+	return c.client.Ping(ctx).Err()
 }
 
 func (c *Client) Close() error {
 	return c.client.Close()
 }
 
-var slidingWindowScript = redis.NewScript(`
+var slidingWindowScript = goredis.NewScript(`
 local key = KEYS[1]
 local event_id = ARGV[1]
 local timestamp = tonumber(ARGV[2])
@@ -45,19 +44,8 @@ local cutoff = tonumber(ARGV[3])
 local ttl_seconds = tonumber(ARGV[4])
 
 redis.call("ZADD", key, timestamp, event_id)
-
-redis.call(
-    "ZREMRANGEBYSCORE",
-    key,
-    "-inf",
-    cutoff
-)
-
-redis.call(
-    "EXPIRE",
-    key,
-    ttl_seconds
-)
+redis.call("ZREMRANGEBYSCORE", key, "-inf", cutoff)
+redis.call("EXPIRE", key, ttl_seconds)
 
 return redis.call("ZCARD", key)
 `)
@@ -69,33 +57,21 @@ func (c *Client) RecordAndCountRecentEvents(
 	timestamp time.Time,
 	window time.Duration,
 ) (int64, error) {
-
 	now := timestamp.UnixMilli()
 	cutoff := timestamp.Add(-window).UnixMilli()
-
 	ttl := int64(window.Seconds()) + 5
 
 	result, err := slidingWindowScript.Run(
-		ctx,
-		c.client,
-		[]string{key},
-		eventID,
-		now,
-		cutoff,
-		ttl,
+		ctx, c.client, []string{key}, eventID, now, cutoff, ttl,
 	).Int64()
-
 	if err != nil {
 		return 0, err
 	}
-
 	return result, nil
 }
 
-// RecordAndGetRecentEventIDs records the event and returns
-// all event IDs currently inside the sliding failure window.
-//
-// The entire operation runs atomically through a Redis Lua script.
+// RecordAndGetRecentEventIDs records the event and returns all event IDs
+// currently inside the sliding failure window. The operation is atomic.
 func (c *Client) RecordAndGetRecentEventIDs(
 	ctx context.Context,
 	key string,
@@ -103,13 +79,11 @@ func (c *Client) RecordAndGetRecentEventIDs(
 	timestamp time.Time,
 	window time.Duration,
 ) ([]string, error) {
-
 	now := timestamp.UnixMilli()
 	cutoff := timestamp.Add(-window).UnixMilli()
-
 	ttl := int64(window.Seconds()) + 5
 
-	script := redis.NewScript(`
+	script := goredis.NewScript(`
 		local key = KEYS[1]
 		local event_id = ARGV[1]
 		local timestamp = tonumber(ARGV[2])
@@ -120,27 +94,14 @@ func (c *Client) RecordAndGetRecentEventIDs(
 		redis.call("ZREMRANGEBYSCORE", key, "-inf", cutoff)
 		redis.call("EXPIRE", key, ttl_seconds)
 
-		return redis.call(
-			"ZRANGEBYSCORE",
-			key,
-			"(" .. cutoff,
-			"+inf"
-		)
+		return redis.call("ZRANGEBYSCORE", key, "(" .. cutoff, "+inf")
 	`)
 
 	eventIDs, err := script.Run(
-		ctx,
-		c.client,
-		[]string{key},
-		eventID,
-		now,
-		cutoff,
-		ttl,
+		ctx, c.client, []string{key}, eventID, now, cutoff, ttl,
 	).StringSlice()
-
 	if err != nil {
 		return nil, err
 	}
-
 	return eventIDs, nil
 }

@@ -124,7 +124,7 @@ func (r *EventRepository) GetByIncidentID(
 
 	defer rows.Close()
 
-	var events []model.Event
+	events := make([]model.Event, 0)
 
 	for rows.Next() {
 		var event model.Event

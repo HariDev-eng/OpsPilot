@@ -98,3 +98,17 @@ func (s *IncidentService) projectIncident(
 		)
 	}
 }
+
+func (s *IncidentService) List(
+	ctx context.Context,
+	limit int,
+) ([]model.Incident, error) {
+	return s.repository.List(ctx, limit)
+}
+
+func (s *IncidentService) GetByID(
+	ctx context.Context,
+	incidentID int64,
+) (*model.Incident, error) {
+	return s.repository.GetByID(ctx, incidentID)
+}
