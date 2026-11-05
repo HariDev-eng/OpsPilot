@@ -78,3 +78,58 @@ func (p *DLQProducer) Publish(
 func (p *DLQProducer) Close() error {
 	return p.writer.Close()
 }
+
+type RawDLQMessage struct {
+	RawPayload        []byte `json:"raw_payload"`
+	OriginalKey       []byte `json:"original_key"`
+	OriginalTopic     string `json:"original_topic"`
+	OriginalPartition int    `json:"original_partition"`
+	OriginalOffset    int64  `json:"original_offset"`
+	Error             string `json:"error"`
+	FailedAt          string `json:"failed_at"`
+	RetryCount        int    `json:"retry_count"`
+}
+
+func (p *DLQProducer) PublishRaw(
+	ctx context.Context,
+	rawPayload []byte,
+	originalKey []byte,
+	originalTopic string,
+	originalPartition int,
+	originalOffset int64,
+	errMessage string,
+) error {
+
+	payload := RawDLQMessage{
+		RawPayload:        rawPayload,
+		OriginalKey:       originalKey,
+		OriginalTopic:     originalTopic,
+		OriginalPartition: originalPartition,
+		OriginalOffset:    originalOffset,
+		Error:             errMessage,
+		FailedAt:          time.Now().UTC().Format(time.RFC3339),
+		RetryCount:        0,
+	}
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf(
+			"failed to marshal raw DLQ message: %w",
+			err,
+		)
+	}
+
+	message := kafka.Message{
+		Key:   originalKey,
+		Value: data,
+	}
+
+	if err := p.writer.WriteMessages(ctx, message); err != nil {
+		return fmt.Errorf(
+			"failed to publish raw message to DLQ: %w",
+			err,
+		)
+	}
+
+	return nil
+}

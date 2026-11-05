@@ -6,19 +6,21 @@ import (
 	"log"
 	"time"
 
+	kafkaProducer "github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/model"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/service"
 	"github.com/segmentio/kafka-go"
-
-	kafkaProducer "github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
 )
 
-const maxRetries = 3
+const (
+	maxRetries      = 3
+	initialDLQDelay = time.Second
+	maxDLQDelay     = 30 * time.Second
+)
 
 type IncidentConsumer struct {
 	reader            *kafka.Reader
 	dlqProducer       *kafkaProducer.DLQProducer
-	failedOnce        map[string]bool
 	incidentProcessor *service.IncidentProcessor
 }
 
@@ -42,14 +44,16 @@ func NewIncidentConsumer(
 	return &IncidentConsumer{
 		reader:            reader,
 		dlqProducer:       dlqProducer,
-		failedOnce:        make(map[string]bool),
 		incidentProcessor: incidentProcessor,
 	}
 }
 
+// Start continuously consumes and processes Kafka messages.
 func (c *IncidentConsumer) Start(ctx context.Context) {
 
 	log.Println("Incident consumer started")
+
+	defer log.Println("Incident consumer stopped")
 
 	for {
 
@@ -58,32 +62,91 @@ func (c *IncidentConsumer) Start(ctx context.Context) {
 		if err != nil {
 
 			if ctx.Err() != nil {
-				log.Println("Incident consumer stopped")
 				return
 			}
 
-			log.Printf(
-				"failed to fetch Kafka message: %v",
-				err,
-			)
+			log.Printf("failed to fetch Kafka message: %v", err)
+
+			// Avoid a tight loop if Kafka is temporarily unavailable.
+			if !c.wait(ctx, time.Second) {
+				return
+			}
 
 			continue
 		}
+
+		// --------------------------------------------------
+		// Deserialize Kafka message
+		// --------------------------------------------------
 
 		var event model.Event
 
-		if err := json.Unmarshal(
-			message.Value,
-			&event,
-		); err != nil {
+		if err := json.Unmarshal(message.Value, &event); err != nil {
 
 			log.Printf(
-				"failed to deserialize Kafka message: %v",
+				"failed to unmarshal event: topic=%s partition=%d offset=%d error=%v",
+				message.Topic,
+				message.Partition,
+				message.Offset,
 				err,
+			)
+
+			// Preserve malformed messages in the raw DLQ.
+			dlqErr := c.publishToDLQWithRetry(
+				ctx,
+				func() error {
+					return c.dlqProducer.PublishRaw(
+						ctx,
+						message.Value,
+						message.Key,
+						message.Topic,
+						message.Partition,
+						message.Offset,
+						err.Error(),
+					)
+				},
+			)
+
+			if dlqErr != nil {
+				log.Printf(
+					"malformed message DLQ handling stopped: topic=%s partition=%d offset=%d error=%v",
+					message.Topic,
+					message.Partition,
+					message.Offset,
+					dlqErr,
+				)
+
+				// Do not process later messages in this partition.
+				return
+			}
+
+			// Commit only after successful DLQ publication.
+			if commitErr := c.reader.CommitMessages(ctx, message); commitErr != nil {
+
+				log.Printf(
+					"failed to commit malformed message after DLQ publication: topic=%s partition=%d offset=%d error=%v",
+					message.Topic,
+					message.Partition,
+					message.Offset,
+					commitErr,
+				)
+
+				continue
+			}
+
+			log.Printf(
+				"malformed message sent to DLQ and committed: topic=%s partition=%d offset=%d",
+				message.Topic,
+				message.Partition,
+				message.Offset,
 			)
 
 			continue
 		}
+
+		// --------------------------------------------------
+		// Process valid event
+		// --------------------------------------------------
 
 		log.Printf(
 			"received event: event_id=%s partition=%d offset=%d",
@@ -92,43 +155,62 @@ func (c *IncidentConsumer) Start(ctx context.Context) {
 			message.Offset,
 		)
 
-		if err := c.processWithRetry(
-			ctx,
-			event,
-		); err != nil {
+		processErr := c.processWithRetry(ctx, event)
+
+		if processErr != nil {
+
+			if ctx.Err() != nil {
+				return
+			}
 
 			log.Printf(
 				"event permanently failed: event_id=%s error=%v",
 				event.EventID,
-				err,
+				processErr,
 			)
 
-			if err := c.sendToDLQ(
+			// Publish failed event to structured DLQ.
+			dlqErr := c.publishToDLQWithRetry(
 				ctx,
-				event,
-				err,
-				maxRetries,
-			); err != nil {
+				func() error {
+					return c.sendToDLQ(
+						ctx,
+						event,
+						processErr,
+						maxRetries,
+					)
+				},
+			)
+
+			if dlqErr != nil {
 
 				log.Printf(
-					"failed to send event %s to DLQ: %v",
+					"event DLQ handling stopped: event_id=%s error=%v",
 					event.EventID,
-					err,
+					dlqErr,
 				)
 
-				// IMPORTANT:
-				// Do NOT commit if DLQ publication failed.
-				continue
+				// Never commit an event that wasn't processed
+				// or successfully published to the DLQ.
+				return
 			}
 		}
 
-		if err := c.reader.CommitMessages(
-			ctx,
-			message,
-		); err != nil {
+		// --------------------------------------------------
+		// Commit Kafka offset
+		// --------------------------------------------------
 
-			log.Printf("failed to commit offset for event %s: %v",
+		if ctx.Err() != nil {
+			return
+		}
+
+		if err := c.reader.CommitMessages(ctx, message); err != nil {
+
+			log.Printf(
+				"failed to commit offset: event_id=%s partition=%d offset=%d error=%v",
 				event.EventID,
+				message.Partition,
+				message.Offset,
 				err,
 			)
 
@@ -144,6 +226,10 @@ func (c *IncidentConsumer) Start(ctx context.Context) {
 	}
 }
 
+// --------------------------------------------------
+// Processing Retry
+// --------------------------------------------------
+
 func (c *IncidentConsumer) processWithRetry(
 	ctx context.Context,
 	event model.Event,
@@ -151,16 +237,17 @@ func (c *IncidentConsumer) processWithRetry(
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		log.Printf(
 			"processing event: event_id=%s attempt=%d",
 			event.EventID,
 			attempt,
 		)
 
-		err := c.processEvent(
-			ctx,
-			event,
-		)
+		err := c.processEvent(ctx, event)
 
 		if err == nil {
 			return nil
@@ -177,24 +264,7 @@ func (c *IncidentConsumer) processWithRetry(
 			return err
 		}
 
-		delay := retryDelay(attempt)
-
-		log.Printf(
-			"retrying event %s in %v",
-			event.EventID,
-			delay,
-		)
-
-		timer := time.NewTimer(delay)
-
-		select {
-
-		case <-timer.C:
-
-		case <-ctx.Done():
-
-			timer.Stop()
-
+		if !c.wait(ctx, retryDelay(attempt)) {
 			return ctx.Err()
 		}
 	}
@@ -207,7 +277,7 @@ func retryDelay(attempt int) time.Duration {
 	switch attempt {
 
 	case 1:
-		return 1 * time.Second
+		return time.Second
 
 	case 2:
 		return 2 * time.Second
@@ -216,6 +286,52 @@ func retryDelay(attempt int) time.Duration {
 		return 4 * time.Second
 	}
 }
+
+// --------------------------------------------------
+// DLQ Retry
+// --------------------------------------------------
+
+// publishToDLQWithRetry retries indefinitely until the
+// publication succeeds or the consumer context is cancelled.
+func (c *IncidentConsumer) publishToDLQWithRetry(
+	ctx context.Context,
+	publish func() error,
+) error {
+
+	delay := initialDLQDelay
+
+	for attempt := 1; ; attempt++ {
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		if err := publish(); err == nil {
+			return nil
+		} else {
+
+			log.Printf(
+				"DLQ publication failed: attempt=%d error=%v",
+				attempt,
+				err,
+			)
+		}
+
+		if !c.wait(ctx, delay) {
+			return ctx.Err()
+		}
+
+		delay *= 2
+
+		if delay > maxDLQDelay {
+			delay = maxDLQDelay
+		}
+	}
+}
+
+// --------------------------------------------------
+// DLQ Publishing
+// --------------------------------------------------
 
 func (c *IncidentConsumer) sendToDLQ(
 	ctx context.Context,
@@ -232,6 +348,10 @@ func (c *IncidentConsumer) sendToDLQ(
 	)
 }
 
+// --------------------------------------------------
+// Event Processing
+// --------------------------------------------------
+
 func (c *IncidentConsumer) processEvent(
 	ctx context.Context,
 	event model.Event,
@@ -247,6 +367,32 @@ func (c *IncidentConsumer) processEvent(
 		event,
 	)
 }
+
+// --------------------------------------------------
+// Context-aware Waiting
+// --------------------------------------------------
+
+func (c *IncidentConsumer) wait(
+	ctx context.Context,
+	duration time.Duration,
+) bool {
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	select {
+
+	case <-timer.C:
+		return true
+
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// --------------------------------------------------
+// Close
+// --------------------------------------------------
 
 func (c *IncidentConsumer) Close() error {
 	return c.reader.Close()

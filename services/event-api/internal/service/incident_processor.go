@@ -135,14 +135,17 @@ func (p *IncidentProcessor) Process(
 		}
 	}
 
-	// 7. Attach event.
-	if err := p.incidentRepository.AttachEventTx(
-		ctx,
-		tx,
-		incidentID,
-		event.EventID,
-	); err != nil {
-		return err
+	// 7. Attach all events from the Redis failure window.
+	for _, eventID := range result.EventIDs {
+
+		if err := p.incidentRepository.AttachEventTx(
+			ctx,
+			tx,
+			incidentID,
+			eventID,
+		); err != nil {
+			return err
+		}
 	}
 
 	// 8. Read the final authoritative incident state

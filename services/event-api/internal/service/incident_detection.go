@@ -13,6 +13,7 @@ type IncidentDetectionResult struct {
 	Count     int64
 	Threshold int64
 	Severity  string
+	EventIDs  []string
 }
 
 const (
@@ -45,7 +46,7 @@ func (d *IncidentDetector) Detect(
 
 	key := "incident:failures:" + event.Service
 
-	count, err := d.redis.RecordAndCountRecentEvents(
+	eventIDs, err := d.redis.RecordAndGetRecentEventIDs(
 		ctx,
 		key,
 		event.EventID,
@@ -57,6 +58,8 @@ func (d *IncidentDetector) Detect(
 		return IncidentDetectionResult{}, err
 	}
 
+	count := int64(len(eventIDs))
+
 	severity := CalculateSeverity(count)
 
 	return IncidentDetectionResult{
@@ -64,5 +67,6 @@ func (d *IncidentDetector) Detect(
 		Count:     count,
 		Threshold: failureThreshold,
 		Severity:  severity,
+		EventIDs:  eventIDs,
 	}, nil
 }

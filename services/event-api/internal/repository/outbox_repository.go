@@ -2,20 +2,25 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+var ErrOutboxClaimLost = errors.New("outbox claim lost or no longer valid")
+
 type OutboxMessage struct {
-	ID        int64
-	EventID   string
-	EventType string
-	Service   string
-	Timestamp time.Time
-	Topic     string
-	Payload   []byte
-	Attempts  int
+	ID         int64
+	EventID    string
+	EventType  string
+	Service    string
+	Timestamp  time.Time
+	Topic      string
+	Payload    []byte
+	Attempts   int
+	ClaimToken string
 }
 
 type OutboxRepository struct {
@@ -33,11 +38,14 @@ func (r *OutboxRepository) ClaimPending(
 	limit int,
 ) ([]OutboxMessage, error) {
 
+	if limit <= 0 {
+		return nil, fmt.Errorf("claim limit must be positive")
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-
 	defer tx.Rollback(ctx)
 
 	rows, err := tx.Query(
@@ -64,19 +72,16 @@ func (r *OutboxRepository) ClaimPending(
 		`,
 		limit,
 	)
-
 	if err != nil {
 		return nil, err
 	}
-
-	defer rows.Close()
 
 	var messages []OutboxMessage
 
 	for rows.Next() {
 		var message OutboxMessage
 
-		err := rows.Scan(
+		if err := rows.Scan(
 			&message.ID,
 			&message.EventID,
 			&message.EventType,
@@ -85,9 +90,8 @@ func (r *OutboxRepository) ClaimPending(
 			&message.Topic,
 			&message.Payload,
 			&message.Attempts,
-		)
-
-		if err != nil {
+		); err != nil {
+			rows.Close()
 			return nil, err
 		}
 
@@ -95,27 +99,34 @@ func (r *OutboxRepository) ClaimPending(
 	}
 
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
 	}
 
-	for _, message := range messages {
-		_, err := tx.Exec(
+	rows.Close()
+
+	for i := range messages {
+		err := tx.QueryRow(
 			ctx,
 			`
 			UPDATE outbox
 			SET
 				status = 'PUBLISHING',
-				attempts = attempts + 1
+				attempts = attempts + 1,
+				claimed_at = NOW(),
+				claim_token = gen_random_uuid()
 			WHERE id = $1
+			RETURNING claim_token::text, attempts
 			`,
-			message.ID,
+			messages[i].ID,
+		).Scan(
+			&messages[i].ClaimToken,
+			&messages[i].Attempts,
 		)
 
 		if err != nil {
 			return nil, err
 		}
-
-		message.Attempts++
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -128,46 +139,120 @@ func (r *OutboxRepository) ClaimPending(
 func (r *OutboxRepository) MarkPublished(
 	ctx context.Context,
 	id int64,
+	claimToken string,
 ) error {
 
-	_, err := r.pool.Exec(
+	if claimToken == "" {
+		return ErrOutboxClaimLost
+	}
+
+	result, err := r.pool.Exec(
 		ctx,
 		`
 		UPDATE outbox
 		SET
 			status = 'PUBLISHED',
-			published_at = NOW()
+			published_at = NOW(),
+			claimed_at = NULL,
+			claim_token = NULL,
+			last_error = NULL,
+			next_retry_at = NULL
 		WHERE id = $1
 		  AND status = 'PUBLISHING'
+		  AND claim_token = $2::uuid
 		`,
 		id,
+		claimToken,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	if result.RowsAffected() == 0 {
+		return ErrOutboxClaimLost
+	}
+
+	return nil
 }
 
 func (r *OutboxRepository) MarkFailed(
 	ctx context.Context,
 	id int64,
+	claimToken string,
 	errMessage string,
 	nextRetryAt time.Time,
 ) error {
 
-	_, err := r.pool.Exec(
+	if claimToken == "" {
+		return ErrOutboxClaimLost
+	}
+
+	result, err := r.pool.Exec(
 		ctx,
 		`
 		UPDATE outbox
 		SET
 			status = 'PENDING',
-			last_error = $2,
-			next_retry_at = $3
+			last_error = $3,
+			next_retry_at = $4,
+			claimed_at = NULL,
+			claim_token = NULL
 		WHERE id = $1
 		  AND status = 'PUBLISHING'
+		  AND claim_token = $2::uuid
 		`,
 		id,
+		claimToken,
 		errMessage,
 		nextRetryAt,
 	)
+	if err != nil {
+		return err
+	}
 
-	return err
+	if result.RowsAffected() == 0 {
+		return ErrOutboxClaimLost
+	}
+
+	return nil
+}
+
+func (r *OutboxRepository) RecoverStalePublishing(
+	ctx context.Context,
+	lease time.Duration,
+) (int64, error) {
+
+	if lease <= 0 {
+		return 0, fmt.Errorf("lease duration must be positive")
+	}
+
+	result, err := r.pool.Exec(
+		ctx,
+		`
+		WITH stale AS (
+			SELECT id
+			FROM outbox
+			WHERE status = 'PUBLISHING'
+			  AND claimed_at IS NOT NULL
+			  AND claimed_at < NOW() - ($1 * INTERVAL '1 second')
+			ORDER BY claimed_at
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE outbox AS o
+		SET
+			status = 'PENDING',
+			claimed_at = NULL,
+			claim_token = NULL,
+			next_retry_at = NOW(),
+			last_error = 'Recovered stale PUBLISHING record after lease expiry'
+		FROM stale
+		WHERE o.id = stale.id
+		`,
+		lease.Seconds(),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("recover stale outbox messages: %w", err)
+	}
+
+	return result.RowsAffected(), nil
 }

@@ -17,6 +17,8 @@ type OutboxPublisher struct {
 	interval   time.Duration
 }
 
+const outboxClaimLease = 5 * time.Minute
+
 func NewOutboxPublisher(
 	repository *repository.OutboxRepository,
 	producer *kafka.Producer,
@@ -55,6 +57,20 @@ func (p *OutboxPublisher) Start(ctx context.Context) {
 }
 
 func (p *OutboxPublisher) publishBatch(ctx context.Context) {
+
+	recovered, err := p.repository.RecoverStalePublishing(
+		ctx,
+		outboxClaimLease,
+	)
+
+	if err != nil {
+		log.Printf("failed to recover stale outbox messages: %v", err)
+		return
+	}
+
+	if recovered > 0 {
+		log.Printf("recovered %d stale outbox messages", recovered)
+	}
 
 	messages, err := p.repository.ClaimPending(
 		ctx,
@@ -112,6 +128,7 @@ func (p *OutboxPublisher) publishMessage(
 		markErr := p.repository.MarkFailed(
 			ctx,
 			message.ID,
+			message.ClaimToken,
 			err.Error(),
 			nextRetry,
 		)
@@ -126,6 +143,7 @@ func (p *OutboxPublisher) publishMessage(
 	if err := p.repository.MarkPublished(
 		ctx,
 		message.ID,
+		message.ClaimToken,
 	); err != nil {
 		return err
 	}
