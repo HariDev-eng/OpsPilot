@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/consumer"
@@ -13,71 +14,66 @@ import (
 	redisStore "github.com/HariDev-eng/opspilot/services/event-api/internal/redis"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/repository"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/service"
+
+	kafkago "github.com/segmentio/kafka-go"
 )
 
+func envOrDefault(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func main() {
-
-	// --------------------------------------------------
-	// Context
-	// --------------------------------------------------
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Graceful shutdown when Ctrl+C is pressed.
-	signalChan := make(chan os.Signal, 1)
-
-	signal.Notify(
-		signalChan,
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-
-	go func() {
-		<-signalChan
-
-		log.Println("Shutdown signal received")
-
-		cancel()
-	}()
-
-	// --------------------------------------------------
-	// Database
-	// --------------------------------------------------
+	defer stop()
 
 	pool, err := database.NewPool()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("database initialization failed: %v", err)
 	}
 	defer pool.Close()
 
-	redisClient, err := redisStore.NewClient("localhost:6379")
+	redisConnection := envOrDefault(
+		"REDIS_URL",
+		envOrDefault("REDIS_ADDR", "localhost:6379"),
+	)
+
+	redisClient, err := redisStore.NewClient(redisConnection)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Redis initialization failed: %v", err)
 	}
 	defer redisClient.Close()
 
-	incidentDetector := service.NewIncidentDetector(
-		redisClient,
-	)
+	brokers := envOrDefault("KAFKA_BROKERS", "localhost:9092")
+	kafkaTopic := envOrDefault("KAFKA_TOPIC", "ops.events")
+	dlqTopic := envOrDefault("KAFKA_DLQ_TOPIC", "ops.events.dlq")
+	groupID := envOrDefault("KAFKA_CONSUMER_GROUP", "incident-detection")
 
-	// --------------------------------------------------
-	// Processed Event Repository
-	// --------------------------------------------------
+	// Local Kafka can run without SASL/TLS. If cloud credentials or a
+	// custom CA are supplied, require the complete authenticated config.
+	var transport *kafkago.Transport
+	var dialer *kafkago.Dialer
 
-	processedRepository := repository.NewProcessedEventRepository(
-		pool,
-	)
+	if os.Getenv("KAFKA_USERNAME") != "" ||
+		os.Getenv("KAFKA_PASSWORD") != "" ||
+		os.Getenv("KAFKA_CA_CERT") != "" ||
+		os.Getenv("KAFKA_CA_CERT_PATH") != "" {
+		transport, err = kafka.NewTransportFromEnv()
+		if err != nil {
+			log.Fatalf("Kafka transport initialization failed: %v", err)
+		}
+		dialer = kafka.NewDialer(transport)
+	}
 
-	// --------------------------------------------------
-	// Incident Repository
-	// --------------------------------------------------
-
+	incidentDetector := service.NewIncidentDetector(redisClient)
+	processedRepository := repository.NewProcessedEventRepository(pool)
 	incidentRepository := repository.NewIncidentRepository(pool)
-
-	// --------------------------------------------------
-	// Incident Processor
-	// --------------------------------------------------
 
 	incidentProcessor := service.NewIncidentProcessor(
 		pool,
@@ -87,38 +83,31 @@ func main() {
 		redisClient,
 	)
 
-	// --------------------------------------------------
-	// DLQ Producer
-	// --------------------------------------------------
-
 	dlqProducer := kafka.NewDLQProducer(
-		"localhost:9092",
-		"ops.events.dlq",
+		brokers,
+		dlqTopic,
+		transport,
 	)
-
 	defer dlqProducer.Close()
 
-	// --------------------------------------------------
-	// Kafka Consumer
-	// --------------------------------------------------
-
 	incidentConsumer := consumer.NewIncidentConsumer(
-		"localhost:9092",
-		"ops.events",
-		"incident-detection",
+		brokers,
+		kafkaTopic,
+		groupID,
 		dlqProducer,
 		incidentProcessor,
+		dialer,
 	)
-
 	defer incidentConsumer.Close()
 
-	// --------------------------------------------------
-	// Start Consumer
-	// --------------------------------------------------
-
-	log.Println("Starting OpsPilot incident detection consumer")
+	log.Printf(
+		"Starting OpsPilot incident consumer: brokers=%s topic=%s group=%s dlq=%s",
+		brokers,
+		kafkaTopic,
+		groupID,
+		dlqTopic,
+	)
 
 	incidentConsumer.Start(ctx)
-
-	log.Println("OpsPilot incident detection consumer stopped")
+	log.Println("OpsPilot incident consumer stopped")
 }

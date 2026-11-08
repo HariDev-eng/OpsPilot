@@ -12,7 +12,9 @@ import type {
 
 import type { SystemHealth } from '../types'
 
-const API_BASE_URL = '/api/v1'
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || '/api/v1'
+).replace(/\/$/, '')
 
 async function request<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`)
@@ -122,7 +124,7 @@ export function reconcileAction(
 
 
 export async function fetchSystemHealth(): Promise<SystemHealth> {
-  const response = await fetch('/api/v1/health')
+  const response = await fetch(`${API_BASE_URL}/health`)
 
   if (!response.ok) {
     throw new Error(`Health check failed: HTTP ${response.status}`)

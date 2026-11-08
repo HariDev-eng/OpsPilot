@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"time"
 
 	kafkaProducer "github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
@@ -30,12 +31,18 @@ func NewIncidentConsumer(
 	groupID string,
 	dlqProducer *kafkaProducer.DLQProducer,
 	incidentProcessor *service.IncidentProcessor,
+	dialers ...*kafka.Dialer,
 ) *IncidentConsumer {
+	var dialer *kafka.Dialer
+	if len(dialers) > 0 {
+		dialer = dialers[0]
+	}
 
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers: []string{broker},
+		Brokers: strings.Split(broker, ","),
 		Topic:   topic,
 		GroupID: groupID,
+		Dialer:  dialer,
 
 		MinBytes: 1,
 		MaxBytes: 10e6,

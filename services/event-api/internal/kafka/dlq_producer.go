@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/model"
@@ -17,18 +18,22 @@ type DLQProducer struct {
 func NewDLQProducer(
 	broker string,
 	topic string,
+	transports ...*kafka.Transport,
 ) *DLQProducer {
+	var transport *kafka.Transport
+	if len(transports) > 0 {
+		transport = transports[0]
+	}
 
-	writer := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:      []string{broker},
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP(strings.Split(broker, ",")...),
 		Topic:        topic,
 		Balancer:     &kafka.Hash{},
-		RequiredAcks: int(kafka.RequireAll),
-	})
-
-	return &DLQProducer{
-		writer: writer,
+		RequiredAcks: kafka.RequireAll,
+		Transport:    transport,
 	}
+
+	return &DLQProducer{writer: writer}
 }
 
 type DLQMessage struct {

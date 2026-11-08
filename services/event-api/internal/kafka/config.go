@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
@@ -21,34 +22,41 @@ func NewTransportFromEnv() (*kafkago.Transport, error) {
 		return nil, fmt.Errorf("KAFKA_USERNAME and KAFKA_PASSWORD are required")
 	}
 
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-	}
+	var caCert []byte
 
-	// Optional custom CA certificate supplied by the Kafka provider.
-	caPath := os.Getenv("KAFKA_CA_CERT_PATH")
-	if caPath == "" {
-		return nil, fmt.Errorf("KAFKA_CA_CERT_PATH is not set")
-	}
+	// Prefer the certificate contents supplied by the deployment environment.
+	caPEM := os.Getenv("KAFKA_CA_CERT")
+	if caPEM != "" {
+		caPEM = strings.ReplaceAll(caPEM, `\n`, "\n")
+		caCert = []byte(caPEM)
+	} else {
+		caPath := os.Getenv("KAFKA_CA_CERT_PATH")
+		if caPath == "" {
+			return nil, fmt.Errorf("KAFKA_CA_CERT or KAFKA_CA_CERT_PATH is required")
+		}
 
-	absPath, err := filepath.Abs(caPath)
-	if err != nil {
-		return nil, fmt.Errorf("resolve Kafka CA path: %w", err)
-	}
+		absPath, err := filepath.Abs(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolve Kafka CA path: %w", err)
+		}
 
-	caCert, err := os.ReadFile(absPath)
-	if err != nil {
-		return nil, fmt.Errorf("read Kafka CA certificate at %s: %w", absPath, err)
+		caCert, err = os.ReadFile(absPath)
+		if err != nil {
+			return nil, fmt.Errorf("read Kafka CA certificate at %s: %w", absPath, err)
+		}
+
+		log.Printf("Kafka CA certificate loaded from file: %s", absPath)
 	}
 
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to add Kafka CA certificate from %s", absPath)
+		return nil, fmt.Errorf("failed to parse Kafka CA certificate")
 	}
 
-	tlsConfig.RootCAs = roots
-
-	log.Printf("Kafka CA certificate loaded successfully from %s", absPath)
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    roots,
+	}
 
 	return &kafkago.Transport{
 		SASL: plain.Mechanism{

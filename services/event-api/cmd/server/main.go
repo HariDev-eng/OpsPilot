@@ -163,14 +163,53 @@ func main() {
 		integrationEventHandler.CreateEvent,
 	)
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	server := &http.Server{
-		Addr:              ":8080",
-		Handler:           mux,
+		Addr:              ":" + port,
+		Handler:           corsMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Println("OpsPilot Event API running on :8080")
+	log.Printf("OpsPilot Event API running on :%s", port)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	allowedOrigins := strings.Split(
+		os.Getenv("CORS_ALLOWED_ORIGINS"),
+		",",
+	)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+
+		for _, allowed := range allowedOrigins {
+			if origin != "" && strings.TrimSpace(allowed) == origin {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set(
+					"Access-Control-Allow-Methods",
+					"GET, POST, DELETE, OPTIONS",
+				)
+				w.Header().Set(
+					"Access-Control-Allow-Headers",
+					"Content-Type, Authorization",
+				)
+				break
+			}
+		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
