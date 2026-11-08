@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const healthCheckTimeout = time.Second
+const healthCheckTimeout = 5 * time.Second
 
 type dependencyChecker interface {
 	Ping(context.Context) error

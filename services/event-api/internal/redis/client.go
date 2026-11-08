@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -12,12 +13,33 @@ type Client struct {
 	client *goredis.Client
 }
 
-func NewClient(address string) (*Client, error) {
-	client := goredis.NewClient(&goredis.Options{
-		Addr: address,
-	})
+func NewClient(connection string) (*Client, error) {
+	if connection == "" {
+		return nil, fmt.Errorf("redis connection is required")
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	var options *goredis.Options
+	var err error
+
+	if strings.HasPrefix(connection, "redis://") ||
+		strings.HasPrefix(connection, "rediss://") {
+
+		options, err = goredis.ParseURL(connection)
+		if err != nil {
+			return nil, fmt.Errorf("invalid redis connection URL: %w", err)
+		}
+	} else {
+		options = &goredis.Options{
+			Addr: connection,
+		}
+	}
+
+	client := goredis.NewClient(options)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
 	defer cancel()
 
 	if err := client.Ping(ctx).Err(); err != nil {

@@ -6,37 +6,39 @@ import (
 	"fmt"
 
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/model"
-	"github.com/segmentio/kafka-go"
+	kafkago "github.com/segmentio/kafka-go"
 )
 
 type Producer struct {
-	writer *kafka.Writer
+	writer *kafkago.Writer
 }
 
-func NewProducer(broker string, topic string) *Producer {
-	writer := kafka.NewWriter(kafka.WriterConfig{
-		Brokers:      []string{broker},
+func NewProducer(
+	brokers []string,
+	topic string,
+	transport *kafkago.Transport,
+) *Producer {
+	writer := &kafkago.Writer{
+		Addr:         kafkago.TCP(brokers...),
 		Topic:        topic,
-		Balancer:     &kafka.Hash{},
-		RequiredAcks: int(kafka.RequireAll),
-	})
-
-	return &Producer{
-		writer: writer,
+		Balancer:     &kafkago.Hash{},
+		RequiredAcks: kafkago.RequireAll,
+		Transport:    transport,
 	}
+
+	return &Producer{writer: writer}
 }
 
 func (p *Producer) Publish(
 	ctx context.Context,
 	event model.Event,
 ) error {
-
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	message := kafka.Message{
+	message := kafkago.Message{
 		Key:   []byte(event.Service),
 		Value: payload,
 	}

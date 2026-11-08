@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/database"
@@ -13,22 +15,26 @@ import (
 	redisStore "github.com/HariDev-eng/opspilot/services/event-api/internal/redis"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/repository"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/service"
-
-	kafkago "github.com/segmentio/kafka-go"
 )
 
-const (
-	kafkaBroker = "localhost:9092"
-	kafkaTopic  = "ops.events"
-	redisAddr   = "localhost:6379"
-)
+const redisAddr = "localhost:6379"
 
-func checkKafka(ctx context.Context) error {
-	conn, err := kafkago.DialContext(ctx, "tcp", kafkaBroker)
-	if err != nil {
-		return err
+func getRedisConnection() string {
+	connection := os.Getenv("REDIS_URL")
+
+	if connection == "" {
+		connection = os.Getenv("REDIS_ADDR")
 	}
-	return conn.Close()
+
+	if connection == "" {
+		connection = redisAddr
+	}
+
+	return connection
+}
+
+func getOperatorSecret() string {
+	return os.Getenv("OPSPILOT_OPERATOR_SECRET")
 }
 
 func main() {
@@ -38,7 +44,7 @@ func main() {
 	}
 	defer pool.Close()
 
-	redisClient, err := redisStore.NewClient(redisAddr)
+	redisClient, err := redisStore.NewClient(getRedisConnection())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,6 +53,18 @@ func main() {
 	eventRepo := repository.NewEventRepository(pool)
 	eventService := service.NewEventService(eventRepo)
 	eventHandler := handler.NewEventHandler(eventService)
+
+	integrationRepo := repository.NewIntegrationRepository(pool)
+	integrationService := service.NewIntegrationService(integrationRepo)
+	integrationHandler := handler.NewIntegrationHandler(
+		integrationService,
+		getOperatorSecret(),
+	)
+
+	integrationEventHandler := handler.NewIntegrationEventHandler(
+		eventService,
+		integrationService,
+	)
 
 	incidentRepository := repository.NewIncidentRepository(pool)
 	incidentService := service.NewIncidentService(incidentRepository, redisClient)
@@ -64,7 +82,48 @@ func main() {
 	incidentQueryHandler := handler.NewIncidentQueryHandler(incidentQueryService)
 
 	outboxRepo := repository.NewOutboxRepository(pool)
-	kafkaProducer := kafka.NewProducer(kafkaBroker, kafkaTopic)
+
+	kafkaBrokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	for i := range kafkaBrokers {
+		kafkaBrokers[i] = strings.TrimSpace(kafkaBrokers[i])
+	}
+
+	if len(kafkaBrokers) == 0 || kafkaBrokers[0] == "" {
+		log.Fatal("KAFKA_BROKERS is required")
+	}
+
+	kafkaTopic := os.Getenv("KAFKA_TOPIC")
+	if kafkaTopic == "" {
+		kafkaTopic = "ops.events"
+	}
+
+	kafkaTransport, err := kafka.NewTransportFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	kafkaDialer := kafka.NewDialer(kafkaTransport)
+
+	checkKafka := func(ctx context.Context) error {
+		conn, err := kafkaDialer.DialContext(ctx, "tcp", kafkaBrokers[0])
+		if err != nil {
+			log.Printf("Kafka readiness check failed: %v", err)
+			return err
+		}
+
+		if err := conn.Close(); err != nil {
+			log.Printf("Kafka connection close failed: %v", err)
+			return err
+		}
+
+		return nil
+	}
+
+	kafkaProducer := kafka.NewProducer(
+		kafkaBrokers,
+		kafkaTopic,
+		kafkaTransport,
+	)
 	defer kafkaProducer.Close()
 
 	outboxPublisher := publisher.NewOutboxPublisher(
@@ -96,6 +155,13 @@ func main() {
 	mux.HandleFunc("GET /api/v1/incidents/{id}/events", incidentQueryHandler.GetEvents)
 	mux.HandleFunc("GET /api/v1/incidents/{id}/actions", incidentQueryHandler.GetActions)
 	mux.HandleFunc("GET /api/v1/dashboard/summary", incidentQueryHandler.GetDashboardSummary)
+	mux.HandleFunc("POST /api/v1/integrations", integrationHandler.Create)
+	mux.HandleFunc("GET /api/v1/integrations", integrationHandler.List)
+	mux.HandleFunc("DELETE /api/v1/integrations/{id}", integrationHandler.Revoke)
+	mux.HandleFunc(
+		"POST /api/v1/integrations/events",
+		integrationEventHandler.CreateEvent,
+	)
 
 	server := &http.Server{
 		Addr:              ":8080",

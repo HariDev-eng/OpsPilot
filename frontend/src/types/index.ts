@@ -91,3 +91,22 @@ export interface SystemHealth {
     kafka: ComponentHealth
   }
 }
+
+export interface Integration {
+  id: string
+  name: string
+  service_name: string
+  key_prefix: string
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+export interface CreateIntegrationResponse {
+  integration: Integration
+  api_key: string
+}
+
+export interface IntegrationListResponse {
+  integrations: Integration[]
+}

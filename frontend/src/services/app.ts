@@ -4,6 +4,11 @@ import type {
   IncidentEvent,
   IncidentAction,
 } from '../types'
+import type {
+  Integration,
+  CreateIntegrationResponse,
+  IntegrationListResponse,
+} from '../types'
 
 import type { SystemHealth } from '../types'
 
@@ -124,4 +129,73 @@ export async function fetchSystemHealth(): Promise<SystemHealth> {
   }
 
   return response.json() as Promise<SystemHealth>
+}
+
+
+const INTEGRATIONS_API = `${API_BASE_URL}/integrations`
+
+async function integrationRequest<T>(
+  path: string,
+  operatorSecret: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const response = await fetch(`${INTEGRATIONS_API}${path}`, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${operatorSecret}`,
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || `Request failed: ${response.status}`)
+  }
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  return response.json() as Promise<T>
+}
+
+export async function fetchIntegrations(
+  operatorSecret: string,
+): Promise<Integration[]> {
+  const result = await integrationRequest<IntegrationListResponse>(
+    '',
+    operatorSecret,
+  )
+
+  return result.integrations
+}
+
+export function createIntegration(
+  operatorSecret: string,
+  name: string,
+  serviceName: string,
+): Promise<CreateIntegrationResponse> {
+  return integrationRequest<CreateIntegrationResponse>(
+    '',
+    operatorSecret,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        service_name: serviceName,
+      }),
+    },
+  )
+}
+
+export function revokeIntegration(
+  operatorSecret: string,
+  id: string,
+): Promise<{ id: string; status: string }> {
+  return integrationRequest<{ id: string; status: string }>(
+    `/${encodeURIComponent(id)}`,
+    operatorSecret,
+    { method: 'DELETE' },
+  )
 }

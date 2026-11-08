@@ -25,12 +25,10 @@ func (r *EventRepository) Create(
 	ctx context.Context,
 	event model.Event,
 ) error {
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
-
 	defer tx.Rollback(ctx)
 
 	eventQuery := `
@@ -39,9 +37,10 @@ func (r *EventRepository) Create(
 			event_type,
 			service,
 			timestamp,
-			payload
+			payload,
+			integration_id
 		)
-		VALUES ($1, $2, $3, $4, $5)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
 	_, err = tx.Exec(
@@ -52,28 +51,27 @@ func (r *EventRepository) Create(
 		event.Service,
 		event.Timestamp,
 		event.Payload,
+		event.IntegrationID,
 	)
-
 	if err != nil {
 		var pgErr *pgconn.PgError
-
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return ErrEventAlreadyExists
 		}
-
 		return err
 	}
 
 	outboxQuery := `
-    	INSERT INTO outbox (
-        	event_id,
-         	event_type,
-          	service,
-           	timestamp,
-            topic,
-            payload
-        )
-        VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO outbox (
+			event_id,
+			event_type,
+			service,
+			timestamp,
+			topic,
+			payload,
+			integration_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	_, err = tx.Exec(
@@ -85,17 +83,13 @@ func (r *EventRepository) Create(
 		event.Timestamp,
 		"ops.events",
 		event.Payload,
+		event.IntegrationID,
 	)
-
 	if err != nil {
 		return err
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (r *EventRepository) GetByIncidentID(

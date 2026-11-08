@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   BookOpen,
+  Cable,
   CheckCircle2,
   Clock3,
   Command,
@@ -30,6 +31,7 @@ import ActionsPage from './components/ActionsPage'
 import SystemHealthPage from './components/SystemHealthPage'
 
 import './App.css'
+import IntegrationsPage from './components/IntegrationsPage'
 
 // --------------------------------------------------
 // NAVIGATION
@@ -39,6 +41,7 @@ const navigation = [
   { label: 'Overview', icon: LayoutDashboard },
   { label: 'Incidents', icon: AlertCircle },
   { label: 'Actions', icon: Zap },
+  { label: 'Integrations', icon: Cable },
   { label: 'Help & Guide', icon: BookOpen },
   { label: 'System Health', icon: HeartPulse },
 ]
@@ -270,6 +273,8 @@ function App() {
           )}
 
           {activePage === 'Actions' && <ActionsPage />}
+
+          {activePage === 'Integrations' && <IntegrationsPage />}
 
           {activePage === 'Help & Guide' && <HelpPage />}
 
