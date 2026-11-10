@@ -38,16 +38,33 @@ type cloudflareMessage struct {
 }
 
 type cloudflareLLMRequest struct {
-	Messages       []cloudflareMessage `json:"messages"`
-	MaxTokens      int                 `json:"max_tokens"`
-	Temperature    float64             `json:"temperature"`
-	Stream         bool                `json:"stream"`
-	ResponseFormat map[string]string   `json:"response_format,omitempty"`
+	Messages           []cloudflareMessage `json:"messages"`
+	MaxTokens          int                 `json:"max_tokens"`
+	Temperature        float64             `json:"temperature"`
+	Stream             bool                `json:"stream"`
+	ResponseFormat     map[string]string   `json:"response_format,omitempty"`
+	ChatTemplateKwargs map[string]bool     `json:"chat_template_kwargs,omitempty"`
 }
 
 type cloudflareLLMResponse struct {
 	Result struct {
+		// Legacy Workers AI text-generation response.
 		Response string `json:"response"`
+
+		// OpenAI-compatible response used by newer Workers AI models.
+		Choices []struct {
+			Message struct {
+				Content   string `json:"content"`
+				Reasoning string `json:"reasoning"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
 	} `json:"result"`
 
 	Success bool `json:"success"`
@@ -61,7 +78,6 @@ func (c *CloudflareLLM) Analyze(
 	ctx context.Context,
 	incidentContext IncidentContext,
 ) (*IncidentAnalysis, error) {
-
 	prompt := buildIncidentAnalysisPrompt(incidentContext)
 
 	requestBody := cloudflareLLMRequest{
@@ -83,14 +99,17 @@ func (c *CloudflareLLM) Analyze(
 		ResponseFormat: map[string]string{
 			"type": "json_object",
 		},
+		// Gemma 4 enables thinking by default. Disable it for this
+		// synchronous structured-output request so the model returns
+		// the requested JSON in its message content.
+		ChatTemplateKwargs: map[string]bool{
+			"enable_thinking": false,
+		},
 	}
 
 	data, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"marshal Cloudflare request: %w",
-			err,
-		)
+		return nil, fmt.Errorf("marshal Cloudflare request: %w", err)
 	}
 
 	url := fmt.Sprintf(
@@ -106,32 +125,19 @@ func (c *CloudflareLLM) Analyze(
 		bytes.NewReader(data),
 	)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"create Cloudflare request: %w",
-			err,
-		)
+		return nil, fmt.Errorf("create Cloudflare request: %w", err)
 	}
 
-	req.Header.Set(
-		"Authorization",
-		"Bearer "+c.apiToken,
-	)
-	req.Header.Set(
-		"Content-Type",
-		"application/json",
-	)
+	req.Header.Set("Authorization", "Bearer "+c.apiToken)
+	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"call Cloudflare Workers AI: %w",
-			err,
-		)
+		return nil, fmt.Errorf("call Cloudflare Workers AI: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var result cloudflareLLMResponse
-
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf(
 			"decode Cloudflare response (HTTP %d): %w",
@@ -148,56 +154,43 @@ func (c *CloudflareLLM) Analyze(
 				result.Errors[0].Message,
 			)
 		}
-
-		return nil, fmt.Errorf(
-			"Cloudflare AI returned HTTP %d",
-			resp.StatusCode,
-		)
+		return nil, fmt.Errorf("Cloudflare AI returned HTTP %d", resp.StatusCode)
 	}
 
+	// Prefer the legacy response field when present, then fall back to
+	// the OpenAI-compatible choices shape used by newer Workers AI models.
 	rawJSON := strings.TrimSpace(result.Result.Response)
+	finishReason := ""
+
+	if rawJSON == "" && len(result.Result.Choices) > 0 {
+		rawJSON = strings.TrimSpace(result.Result.Choices[0].Message.Content)
+		finishReason = result.Result.Choices[0].FinishReason
+	}
 
 	if rawJSON == "" {
 		return nil, fmt.Errorf(
-			"Cloudflare returned an empty model response",
+			"Cloudflare returned empty model content (finish_reason=%q, prompt_tokens=%d, completion_tokens=%d)",
+			finishReason,
+			result.Result.Usage.PromptTokens,
+			result.Result.Usage.CompletionTokens,
 		)
 	}
 
-	// Parse model-generated JSON.
 	var analysis IncidentAnalysis
-
-	if err := json.Unmarshal(
-		[]byte(rawJSON),
-		&analysis,
-	); err != nil {
-		return nil, fmt.Errorf(
-			"parse incident analysis JSON: %w",
-			err,
-		)
+	if err := json.Unmarshal([]byte(rawJSON), &analysis); err != nil {
+		return nil, fmt.Errorf("parse incident analysis JSON: %w", err)
 	}
 
-	// Validate required fields and confidence.
 	if err := analysis.Validate(); err != nil {
-		return nil, fmt.Errorf(
-			"invalid incident analysis: %w",
-			err,
-		)
+		return nil, fmt.Errorf("invalid incident analysis: %w", err)
 	}
 
-	// Verify every evidence reference against supplied context.
 	if err := analysis.ValidateEvidence(incidentContext); err != nil {
-		return nil, fmt.Errorf(
-			"invalid evidence references: %w",
-			err,
-		)
+		return nil, fmt.Errorf("invalid evidence references: %w", err)
 	}
 
-	// Validate action categories and approval requirements.
 	if err := analysis.ValidateActions(); err != nil {
-		return nil, fmt.Errorf(
-			"invalid recommended actions: %w",
-			err,
-		)
+		return nil, fmt.Errorf("invalid recommended actions: %w", err)
 	}
 
 	return &analysis, nil
