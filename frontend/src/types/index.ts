@@ -76,6 +76,49 @@ export interface IncidentAction {
   updated_at: string
 }
 
+export interface AIAnalysisEvidence {
+  source_type: 'EVENT' | 'KNOWLEDGE' | string
+  source_id: string
+  claim: string
+}
+
+export interface AIRecommendedAction {
+  description: string
+  action_type: 'INVESTIGATION' | 'MITIGATION' | 'DESTRUCTIVE' | string
+  requires_approval: boolean
+}
+
+export interface AIAnalysisResult {
+  summary: string
+  likely_cause: string
+  cause_status: 'CONFIRMED' | 'UNCONFIRMED' | 'UNKNOWN' | string
+  confidence: number
+  evidence: AIAnalysisEvidence[]
+  recommended_actions: AIRecommendedAction[]
+  risks: string[]
+  actions?: IncidentAction[]
+}
+
+export interface AIAnalysisRecord {
+  id: number
+  incident_id: number
+  status: string
+  provider: string
+  model: string
+  analysis?: AIAnalysisResult | null
+  error_message?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AIAnalysisHistoryResponse {
+  incident_id: number
+  analyses: AIAnalysisRecord[]
+  count: number
+}
+
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
 
 export interface ComponentHealth {
