@@ -22,6 +22,7 @@ import {
   acknowledgeIncident,
   resolveIncident,
 } from '../services/app'
+import AIAnalysisPanel from './AIAnalysisPanel'
 
 type Props = {
   incidentId: number
@@ -215,6 +216,8 @@ function IncidentDetails({
               )}
             </div>
           </section>
+
+          <AIAnalysisPanel incidentId={incidentId} />
 
           <section className="panel detail-section">
             <div className="panel-header">
