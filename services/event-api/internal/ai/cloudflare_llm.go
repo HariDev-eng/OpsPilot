@@ -39,11 +39,10 @@ type cloudflareMessage struct {
 
 type cloudflareLLMRequest struct {
 	Messages           []cloudflareMessage `json:"messages"`
-	MaxTokens          int                 `json:"max_tokens"`
-	Temperature        float64             `json:"temperature"`
-	Stream             bool                `json:"stream"`
-	ResponseFormat     map[string]string   `json:"response_format,omitempty"`
-	ChatTemplateKwargs map[string]bool     `json:"chat_template_kwargs,omitempty"`
+	MaxCompletionTokens int                `json:"max_completion_tokens"`
+	Temperature         float64            `json:"temperature"`
+	Stream              bool               `json:"stream"`
+	ChatTemplateKwargs  map[string]bool    `json:"chat_template_kwargs,omitempty"`
 }
 
 type cloudflareLLMResponse struct {
@@ -93,12 +92,9 @@ func (c *CloudflareLLM) Analyze(
 				Content: prompt,
 			},
 		},
-		MaxTokens:   2048,
-		Temperature: 0.1,
-		Stream:      false,
-		ResponseFormat: map[string]string{
-			"type": "json_object",
-		},
+		MaxCompletionTokens: 2048,
+		Temperature:         0.1,
+		Stream:              false,
 		// Gemma 4 enables thinking by default. Disable it for this
 		// synchronous structured-output request so the model returns
 		// the requested JSON in its message content.
