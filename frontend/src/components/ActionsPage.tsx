@@ -415,14 +415,14 @@ function ActionsPage() {
                   return (
                     <tr key={action.id}>
 
-                      <td>
+                      <td data-label="Action">
                         <div className="action-description">
                           <strong>ACT-{action.id}</strong>
                           <span>{action.description}</span>
                         </div>
                       </td>
 
-                      <td>
+                      <td data-label="Incident">
                         <div className="action-incident">
                           <strong>
                             INC-{String(action.incident_id).padStart(4, '0')}
@@ -431,21 +431,21 @@ function ActionsPage() {
                         </div>
                       </td>
 
-                      <td>{action.action_type}</td>
+                      <td data-label="Type">{action.action_type}</td>
 
-                      <td>
+                      <td data-label="Status">
                         <ActionStatusBadge status={action.status} />
                       </td>
 
-                      <td>
+                      <td data-label="Approval">
                         {action.requires_approval ? 'Required' : 'Not required'}
                       </td>
 
-                      <td>
+                      <td data-label="Created">
                         {formatDate(action.created_at)}
                       </td>
 
-                      <td>
+                      <td data-label="Operations">
                         <div className="action-controls">
 
                           {canApprove && (
