@@ -14,6 +14,8 @@ import {
   Command,
   HeartPulse,
   LayoutDashboard,
+  Menu,
+  X,
   Search,
   Siren,
   Zap,
@@ -52,6 +54,7 @@ const navigation = [
 
 function App() {
   const [activePage, setActivePage] = useState('Overview')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
@@ -140,6 +143,7 @@ function App() {
   function navigateTo(page: string) {
     setActivePage(page)
     setSelectedIncidentId(null)
+    setMobileNavOpen(false)
   }
 
   // --------------------------------------------------
@@ -149,7 +153,19 @@ function App() {
   return (
     <div className="app-shell">
 
-      <aside className="sidebar">
+      {mobileNavOpen && (
+        <button
+          type="button"
+          className="mobile-nav-backdrop"
+          aria-label="Close navigation"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
+      <aside
+        id="opspilot-navigation"
+        className={`sidebar ${mobileNavOpen ? 'sidebar-open' : ''}`}
+      >
 
         <div className="brand">
           <div className="brand-icon">
@@ -220,6 +236,17 @@ function App() {
       <main className="main-content">
 
         <header className="topbar">
+          <button
+            type="button"
+            className="mobile-nav-toggle"
+            aria-label={mobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={mobileNavOpen}
+            aria-controls="opspilot-navigation"
+            onClick={() => setMobileNavOpen((open) => !open)}
+          >
+            {mobileNavOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+
           <div className="breadcrumb">
             <span>Workspace</span>
             <span className="breadcrumb-separator">/</span>
