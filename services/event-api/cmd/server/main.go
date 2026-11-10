@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HariDev-eng/opspilot/services/event-api/internal/ai"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/database"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/handler"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
@@ -73,6 +74,56 @@ func main() {
 	actionRepository := repository.NewActionRepository(pool)
 	actionService := service.NewActionService(pool, actionRepository)
 	actionHandler := handler.NewActionHandler(actionService)
+
+	// AI repositories
+	knowledgeRepository := repository.NewKnowledgeRepository(pool)
+	aiAnalysisRepository := repository.NewAIAnalysisRepository(pool)
+
+	// AI provider configuration
+	ollamaURL := strings.TrimRight(
+		os.Getenv("OLLAMA_BASE_URL"),
+		"/",
+	)
+
+	ollamaEmbeddingModel := os.Getenv("OLLAMA_EMBEDDING_MODEL")
+	ollamaLLMModel := os.Getenv("OLLAMA_LLM_MODEL")
+
+	if ollamaURL == "" ||
+		ollamaEmbeddingModel == "" ||
+		ollamaLLMModel == "" {
+		log.Fatal("AI provider configuration is incomplete")
+	}
+
+	// Existing Ollama providers
+	embeddingProvider := ai.NewOllamaEmbeddingProvider(
+		ollamaURL,
+		ollamaEmbeddingModel,
+	)
+
+	llmProvider := ai.NewOllamaLLM(
+		ollamaURL,
+		ollamaLLMModel,
+	)
+
+	// Existing RAG context builder
+	contextBuilder := ai.NewContextBuilder(
+		incidentRepository,
+		eventRepo,
+		knowledgeRepository,
+		embeddingProvider,
+	)
+
+	// AI service
+	aiService := service.NewAIService(
+		contextBuilder,
+		llmProvider,
+		aiAnalysisRepository,
+		actionService,
+		"ollama",
+		ollamaLLMModel,
+	)
+
+	aiHandler := handler.NewAIHandler(aiService)
 
 	incidentQueryService := service.NewIncidentQueryService(
 		incidentRepository,
@@ -161,6 +212,25 @@ func main() {
 	mux.HandleFunc(
 		"POST /api/v1/integrations/events",
 		integrationEventHandler.CreateEvent,
+	)
+	mux.HandleFunc(
+		"POST /api/v1/incidents/{id}/analyze",
+		aiHandler.AnalyzeIncident,
+	)
+
+	mux.HandleFunc(
+		"GET /api/v1/incidents/{id}/analysis",
+		aiHandler.GetLatestAnalysis,
+	)
+
+	mux.HandleFunc(
+		"GET /api/v1/incidents/{id}/analysis/history",
+		aiHandler.GetAnalysisHistory,
+	)
+
+	mux.HandleFunc(
+		"GET /api/v1/ai/status",
+		aiHandler.Status,
 	)
 
 	port := os.Getenv("PORT")
