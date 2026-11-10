@@ -38,11 +38,11 @@ type cloudflareMessage struct {
 }
 
 type cloudflareLLMRequest struct {
-	Messages           []cloudflareMessage `json:"messages"`
-	MaxCompletionTokens int                `json:"max_completion_tokens"`
-	Temperature         float64            `json:"temperature"`
-	Stream              bool               `json:"stream"`
-	ChatTemplateKwargs  map[string]bool    `json:"chat_template_kwargs,omitempty"`
+	Messages            []cloudflareMessage `json:"messages"`
+	MaxCompletionTokens int                 `json:"max_completion_tokens"`
+	Temperature         float64             `json:"temperature"`
+	Stream              bool                `json:"stream"`
+	ChatTemplateKwargs  map[string]bool     `json:"chat_template_kwargs,omitempty"`
 }
 
 type cloudflareLLMResponse struct {
