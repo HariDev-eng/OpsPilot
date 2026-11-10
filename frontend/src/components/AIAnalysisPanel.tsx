@@ -62,7 +62,20 @@ function AIAnalysisPanel({ incidentId }: Props) {
       const history = await fetchAIAnalysisHistory(incidentId).catch(() => null)
       setHistoryCount(history?.count ?? 0)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI analysis failed')
+      const fallbackMessage = err instanceof Error ? err.message : 'AI analysis failed'
+
+      // The API persists failed runs in ai_analyses even when the
+      // analyze endpoint returns HTTP 500. Reload that record so the
+      // operator sees the actionable persisted failure message.
+      try {
+        const latest = await fetchLatestAIAnalysis(incidentId)
+        setRecord(latest)
+        const history = await fetchAIAnalysisHistory(incidentId).catch(() => null)
+        setHistoryCount(history?.count ?? 0)
+        setError(latest.error_message || fallbackMessage)
+      } catch {
+        setError(fallbackMessage)
+      }
     } finally {
       setRunning(false)
     }
