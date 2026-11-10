@@ -667,7 +667,7 @@ function IncidentsPage({
 
         {!loading && !error && (
           <div className="table-wrapper">
-            <table>
+            <table className="incident-list-table mobile-card-table">
               <thead>
                 <tr>
                   <th>ID</th>
@@ -686,29 +686,29 @@ function IncidentsPage({
                     onClick={() => onSelectIncident(incident.id)}
                     className="clickable-row"
                   >
-                    <td>
+                    <td data-label="Incident">
                       <strong>
                         INC-{String(incident.id).padStart(4, '0')}
                       </strong>
                     </td>
 
-                    <td>
+                    <td data-label="Service">
                       <span className="service-name">
                         {incident.service}
                       </span>
                     </td>
 
-                    <td>{incident.event_type}</td>
+                    <td data-label="Event type">{incident.event_type}</td>
 
-                    <td>
+                    <td data-label="Severity">
                       <SeverityBadge severity={incident.severity} />
                     </td>
 
-                    <td>
+                    <td data-label="Status">
                       <StatusBadge status={incident.status} />
                     </td>
 
-                    <td>{formatDate(incident.created_at)}</td>
+                    <td data-label="Created">{formatDate(incident.created_at)}</td>
                   </tr>
                 ))}
 
