@@ -3,6 +3,8 @@ import type {
   DashboardSummary,
   IncidentEvent,
   IncidentAction,
+  AIAnalysisRecord,
+  AIAnalysisHistoryResponse,
 } from '../types'
 import type {
   Integration,
@@ -46,6 +48,19 @@ export function fetchIncidentEvents(
   incidentId: number,
 ): Promise<IncidentEvent[]> {
   return request<IncidentEvent[]>(`/incidents/${incidentId}/events`)
+}
+
+// AI incident analysis
+export function analyzeIncident(incidentId: number): Promise<AIAnalysisRecord> {
+  return postRequest<AIAnalysisRecord>(`/incidents/${incidentId}/analyze`)
+}
+
+export function fetchLatestAIAnalysis(incidentId: number): Promise<AIAnalysisRecord> {
+  return request<AIAnalysisRecord>(`/incidents/${incidentId}/analysis`)
+}
+
+export function fetchAIAnalysisHistory(incidentId: number): Promise<AIAnalysisHistoryResponse> {
+  return request<AIAnalysisHistoryResponse>(`/incidents/${incidentId}/analysis/history`)
 }
 
 // Incident actions
