@@ -213,7 +213,7 @@ Required JSON structure:
       "action_type": "INVESTIGATION",
       "requires_approval": false
     }
-  ]
+  ],
   "risks": [
     "potential operational risks"
   ]
