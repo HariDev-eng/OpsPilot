@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/ai"
+	incidentConsumer "github.com/HariDev-eng/opspilot/services/event-api/internal/consumer"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/database"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/handler"
 	"github.com/HariDev-eng/opspilot/services/event-api/internal/kafka"
@@ -210,6 +211,46 @@ func main() {
 
 	kafkaDialer := kafka.NewDialer(kafkaTransport)
 
+	// Incident detection consumer
+	dlqTopic := getEnvOrDefault(
+		"KAFKA_DLQ_TOPIC",
+		"ops.events.dlq",
+	)
+
+	consumerGroup := getEnvOrDefault(
+		"KAFKA_CONSUMER_GROUP",
+		"incident-detection",
+	)
+
+	incidentDetector := service.NewIncidentDetector(redisClient)
+
+	processedRepository := repository.NewProcessedEventRepository(pool)
+
+	incidentProcessor := service.NewIncidentProcessor(
+		pool,
+		processedRepository,
+		incidentRepository,
+		incidentDetector,
+		redisClient,
+	)
+
+	dlqProducer := kafka.NewDLQProducer(
+		strings.Join(kafkaBrokers, ","),
+		dlqTopic,
+		kafkaTransport,
+	)
+	defer dlqProducer.Close()
+
+	kafkaIncidentConsumer := incidentConsumer.NewIncidentConsumer(
+		strings.Join(kafkaBrokers, ","),
+		kafkaTopic,
+		consumerGroup,
+		dlqProducer,
+		incidentProcessor,
+		kafkaDialer,
+	)
+	defer kafkaIncidentConsumer.Close()
+
 	checkKafka := func(ctx context.Context) error {
 		conn, err := kafkaDialer.DialContext(
 			ctx,
@@ -254,6 +295,10 @@ func main() {
 	defer cancel()
 
 	go outboxPublisher.Start(ctx)
+
+	go kafkaIncidentConsumer.Start(ctx)
+
+	log.Println("Incident detection consumer launched")
 
 	// Health
 	healthHandler := handler.NewHealthHandler(
