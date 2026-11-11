@@ -137,6 +137,7 @@ Set the environment variables in your shell or local environment file. Do not co
 | `CLOUDFLARE_EMBEDDING_MODEL` | Optional embedding model override |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated allowed browser origins |
 | `OPSPILOT_OPERATOR_SECRET` | Shared operator secret for protected management routes |
+| `OPSPILOT_OPERATOR_ID` | Audit actor label for authenticated action mutations (default: `portfolio-operator`) |
 
 Apply the SQL migrations under `services/event-api/migration` to your database in order before starting the application.
 
@@ -198,7 +199,7 @@ The [architecture documentation index](docs/architecture/readme.md) links the de
 
 ## Known limitations and next hardening steps
 
-- Add and enforce real authentication/authorization for all state-changing and billable endpoints; a shared operator secret is only a single-operator prototype gate, not multi-user identity or RBAC.
+- The action approve/reject/reconcile endpoints use a shared Bearer secret and configured audit actor label. This is only a single-operator V1 gate; add real user identity, role-based authorization and protect all state-changing and billable endpoints before production.
 - Review and remove database backups or other generated artifacts from the public repository and Git history; rotate any credentials if a dump contains them.
 - Expand tests for event ingestion, outbox recovery, Kafka retry/DLQ, incident correlation, AI pipeline failures and HTTP authorization.
 - Add AI/RAG quality evaluation, calibrated confidence and claim-level grounding.
