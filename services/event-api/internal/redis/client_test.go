@@ -2,14 +2,22 @@ package redis
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 )
 
+func redisTestAddress() string {
+	if address := os.Getenv("REDIS_TEST_ADDR"); address != "" {
+		return address
+	}
+	return "127.0.0.1:6379"
+}
+
 func TestSlidingWindow(t *testing.T) {
 	ctx := context.Background()
 
-	client, err := NewClient("localhost:6379")
+	client, err := NewClient(redisTestAddress())
 	if err != nil {
 		t.Fatalf("failed to connect to redis: %v", err)
 	}
@@ -73,7 +81,7 @@ func TestSlidingWindow(t *testing.T) {
 func TestSlidingWindowRemovesOldEvents(t *testing.T) {
 	ctx := context.Background()
 
-	client, err := NewClient("localhost:6379")
+	client, err := NewClient(redisTestAddress())
 	if err != nil {
 		t.Fatalf("failed to connect to redis: %v", err)
 	}
@@ -125,7 +133,7 @@ func TestSlidingWindowRemovesOldEvents(t *testing.T) {
 func TestSlidingWindowDoesNotCountDuplicateEvent(t *testing.T) {
 	ctx := context.Background()
 
-	client, err := NewClient("localhost:6379")
+	client, err := NewClient(redisTestAddress())
 	if err != nil {
 		t.Fatalf("failed to connect to redis: %v", err)
 	}
@@ -195,7 +203,7 @@ func TestSlidingWindowDoesNotCountDuplicateEvent(t *testing.T) {
 func TestSlidingWindowSetsTTL(t *testing.T) {
 	ctx := context.Background()
 
-	client, err := NewClient("localhost:6379")
+	client, err := NewClient(redisTestAddress())
 	if err != nil {
 		t.Fatalf("failed to connect to redis: %v", err)
 	}
