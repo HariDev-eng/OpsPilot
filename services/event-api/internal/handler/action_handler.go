@@ -28,11 +28,6 @@ func NewActionHandler(
 	}
 }
 
-// Temporary development identity.
-// Replace this with authenticated identity from middleware
-// before exposing the API to real users.
-const developmentActorID = "dev-operator"
-
 type actionResponse struct {
 	ActionID int64  `json:"action_id"`
 	Status   string `json:"status"`
@@ -68,7 +63,7 @@ func (h *ActionHandler) Approve(
 	err = h.service.Approve(
 		r.Context(),
 		actionID,
-		developmentActorID,
+		OperatorIDFromContext(r),
 	)
 
 	if err != nil {
@@ -157,7 +152,7 @@ func (h *ActionHandler) Reject(
 	err = h.service.Reject(
 		r.Context(),
 		actionID,
-		developmentActorID,
+		OperatorIDFromContext(r),
 		reason,
 	)
 
@@ -275,7 +270,7 @@ func (h *ActionHandler) Reconcile(
 	action, err := h.service.ResolveReconciliation(
 		r.Context(),
 		actionID,
-		developmentActorID,
+		OperatorIDFromContext(r),
 		request.Decision,
 		request.Reason,
 	)
