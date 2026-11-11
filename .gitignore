@@ -25,3 +25,8 @@ postgres_data/
 # Build output
 dist/
 build/
+
+# Database exports and backups must remain outside the public repository
+*.dump
+*.backup
+*.bak
