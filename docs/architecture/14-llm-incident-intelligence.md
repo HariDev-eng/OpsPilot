@@ -247,7 +247,7 @@ Chunking
 EmbeddingProvider
        |
        v
-Ollama
+Cloudflare Workers AI
        |
        v
 Vector Representation
