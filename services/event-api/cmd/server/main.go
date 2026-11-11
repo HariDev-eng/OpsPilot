@@ -41,7 +41,7 @@ func getRedisConnection() string {
 }
 
 func getOperatorSecret() string {
-	return os.Getenv("OPSPILOT_OPERATOR_SECRET")
+	return strings.TrimSpace(os.Getenv("OPSPILOT_OPERATOR_SECRET"))
 }
 
 func getEnvOrDefault(key, fallback string) string {
@@ -361,18 +361,34 @@ func main() {
 		incidentQueryHandler.GetDashboardSummary,
 	)
 
-	// Action operations
-	mux.HandleFunc(
+	// Action mutations require the shared operator credential.
+	// Set OPSPILOT_OPERATOR_SECRET and OPSPILOT_OPERATOR_ID in the API environment.
+	operatorSecret := getOperatorSecret()
+	operatorID := getEnvOrDefault("OPSPILOT_OPERATOR_ID", "portfolio-operator")
+
+	mux.Handle(
 		"POST /api/v1/actions/{id}/approve",
-		actionHandler.Approve,
+		handler.OperatorAuthMiddleware(
+			operatorSecret,
+			operatorID,
+			http.HandlerFunc(actionHandler.Approve),
+		),
 	)
-	mux.HandleFunc(
+	mux.Handle(
 		"POST /api/v1/actions/{id}/reject",
-		actionHandler.Reject,
+		handler.OperatorAuthMiddleware(
+			operatorSecret,
+			operatorID,
+			http.HandlerFunc(actionHandler.Reject),
+		),
 	)
-	mux.HandleFunc(
+	mux.Handle(
 		"POST /api/v1/actions/{id}/reconcile",
-		actionHandler.Reconcile,
+		handler.OperatorAuthMiddleware(
+			operatorSecret,
+			operatorID,
+			http.HandlerFunc(actionHandler.Reconcile),
+		),
 	)
 
 	// Integration management
