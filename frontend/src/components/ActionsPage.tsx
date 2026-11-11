@@ -415,6 +415,7 @@ function ActionsPage() {
             <option value="ALL">All types</option>
             <option value="INVESTIGATION">Investigation</option>
             <option value="MITIGATION">Mitigation</option>
+            <option value="DESTRUCTIVE">Destructive</option>
           </select>
 
         </div>
@@ -555,7 +556,7 @@ function ActionsPage() {
 
                               <button
                                 type="button"
-                                disabled={busy}
+                                disabled={busy || !operatorSecret}
                                 className="action-control"
                                 onClick={() =>
                                   handleReconcile(action, 'UNKNOWN')
