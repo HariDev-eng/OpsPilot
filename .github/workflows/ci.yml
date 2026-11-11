@@ -1,0 +1,74 @@
+name: OpsPilot CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opspilot-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go tests and builds
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/event-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: services/event-api/go.mod
+          cache: true
+          cache-dependency-path: services/event-api/go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build API
+        run: go build ./cmd/server
+
+      - name: Build consumer
+        run: go build ./cmd/consumer
+
+  frontend:
+    name: Frontend lint and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check and build
+        run: npm run build
