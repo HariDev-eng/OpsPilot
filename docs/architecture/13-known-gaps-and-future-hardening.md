@@ -411,31 +411,45 @@ This richer evidence becomes especially valuable for AI.
 
 ---
 
-# 11. AI Layer Is Not Yet Implemented
+# 11. AI Incident Intelligence — Implemented in V1
 
-The AI portion of OpsPilot is planned but has not yet been built.
+The AI pipeline is implemented and has been exercised against the deployed V1 application. The deployed Go server is wired to Cloudflare Workers AI; Ollama provider implementations may remain in the repository for local experimentation, but they are not the configured provider used by the current Render deployment.
 
-The intended architecture is:
+Implemented V1 flow:
 
 ```text
 Incident
    ↓
 AI Context Builder
-   ↓
-Evidence collection
-   ↓
-RAG
-   ↓
-LLM
-   ↓
-Structured analysis
-   ↓
-Recommendations
+   ├── Incident metadata and associated events
+   └── EmbeddingProvider
+          ↓
+     Cloudflare BGE embeddings
+          ↓
+     PostgreSQL + pgvector retrieval
+          ↓
+     IncidentContext
+          ↓
+     Cloudflare Gemma 4
+          ↓
+     Structured response parsing
+          ↓
+     Analysis, evidence and action validation
+          ↓
+     AI analysis history + recommended actions
 ```
 
-The AI must not be treated as an oracle.
+Verified prototype behavior includes a completed analysis for a deployed synthetic incident, with evidence references to the five associated events and three persisted investigation recommendations.
 
----
+The following remain gaps rather than implemented capabilities:
+
+- RAG retrieval-quality and answer-quality evaluation.
+- Calibrated confidence and claim-level semantic verification.
+- Knowledge document lifecycle management and richer chunking.
+- AI usage budgets, rate limiting and operator-level usage auditing.
+- Strong authentication and authorization for analysis and action mutations.
+
+The model is decision support. Backend validation and human review remain necessary; a model-reported likely cause is not a confirmed root cause.
 
 # 12. AI Context Builder
 
@@ -870,50 +884,49 @@ The long-term architecture is:
 
 # 25. What Is Actually Built vs Planned
 
-## Built
+## Implemented in V1
 
 ```text
-Event ingestion
-PostgreSQL persistence
+Event ingestion API
+PostgreSQL event persistence
 Transactional outbox
-Kafka publishing
-Kafka consumer
-Consumer retries
+Kafka publishing and consumption
+Consumer retries and DLQ handling
 Consumer idempotency
-DLQ producer
-Incident classification
-Sliding-window detection
-Severity calculation
-Incident correlation
-Incident creation
-Incident escalation
-Incident lifecycle
-Redis detection state
+Redis sliding-window detection
+Incident classification and severity calculation
+Incident creation and lifecycle
 Redis incident projection
-Failure testing
+AI context builder
+Cloudflare BGE embeddings
+PostgreSQL + pgvector retrieval
+Cloudflare Gemma 4 incident analysis
+Structured output parsing and validation
+Evidence reference validation
+AI analysis persistence and history API
+Recommended action creation
+Action approval/rejection/reconciliation workflow
+React operator dashboard
+Incident, action, integration and health views
 Architecture documentation
+Synthetic end-to-end deployment verification
 ```
 
-## Not Yet Built
+## Known gaps / not yet production-hardened
 
 ```text
-AI context builder
-Embeddings
-Vector database
-RAG pipeline
-LLM integration
-Structured AI analysis
-AI evaluation
-AI tool calling
-Human approval workflow
-Action executor
-Advanced correlation
-Production observability
+Authentication and role-based authorization
+Authorization on all state-changing and billable endpoints
+Per-user identity and audit attribution
+API rate limiting and abuse protection
+AI/RAG evaluation and calibrated confidence
+Claim-level semantic grounding
+Knowledge-base lifecycle and richer chunking
+Automated recovery tests for all infrastructure failure modes
+Production observability and alerting
+Independent API/consumer scaling and high availability
 Kubernetes deployment
-Final UI
 ```
-
----
 
 # 26. Engineering Principle
 
