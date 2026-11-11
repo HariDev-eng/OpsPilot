@@ -683,28 +683,22 @@ Autoscaling where appropriate
 
 # 19. Security Gap
 
-Future security work includes:
+V1 now protects the action mutation endpoints (approve, reject and reconcile) with the shared `OPSPILOT_OPERATOR_SECRET` Bearer credential. The authenticated request context supplies an audit actor label from `OPSPILOT_OPERATOR_ID`.
+
+This is a single-operator prototype gate, not user authentication or RBAC. The following remain open:
 
 ```text
-authentication
-authorization
-service authentication
-API rate limiting
-secret management
-TLS
-audit logging
-RBAC
-AI tool authorization
-approval authorization
+multi-user identity and session management
+role-based authorization
+separation of requester, approver and reconciler roles
+protection of all state-changing endpoints
+protection and rate limiting of billable AI inference endpoints
+service-to-service authentication
+secret rotation and management
+comprehensive audit logging and monitoring
 ```
 
-Especially important:
-
-```text
-AI tool execution
-```
-
-must have strict permissions.
+The public repository also contains a tracked database dump that has not yet been inspected. Its contents must be reviewed locally; remove the artifact from the repository and history if it contains application data, credentials or other non-public information.
 
 ---
 
