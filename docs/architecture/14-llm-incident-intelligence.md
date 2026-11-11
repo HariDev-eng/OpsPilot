@@ -944,7 +944,7 @@ Live Cloudflare Workers AI inference has been successfully tested against a synt
 4. Retrieval currently uses top-three vector results; there is no production-grade reranking or automated retrieval evaluation.
 5. Prompt instructions do not guarantee schema compliance; parsing and backend validation are required.
 6. Action type and approval policy validation does not by itself prove that a recommended operation is safe. The backend operation allowlist remains the execution boundary.
-7. Production-grade multi-user authentication, authorization, role separation and AI usage auditing remain future work. The deployed action mutation routes must be protected before real operator use.
+7. The action mutation routes use a shared Bearer secret and configured audit actor label in V1. Production-grade multi-user identity, role separation, AI inference authorization and usage auditing remain future work.
 8. Live inference depends on Cloudflare availability, account limits and configured credentials.
 9. The current single-process Render deployment runs the API, outbox publisher and incident consumer together for cost reasons; this is not an independently scalable high-availability topology.
 10. The deployed prototype was exercised with synthetic event data. It has not been validated against real production incidents or a formal AI quality benchmark.
