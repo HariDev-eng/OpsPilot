@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import {
   Activity,
   CheckCircle2,
@@ -36,6 +36,8 @@ function ActionsPage() {
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<number | null>(null)
   const [error, setError] = useState('')
+  const [operatorSecret, setOperatorSecret] = useState('')
+  const [secretInput, setSecretInput] = useState('')
 
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
@@ -113,6 +115,26 @@ function ActionsPage() {
   }
 
 
+  // Operator credentials are kept in component memory only.
+  // The API verifies the shared bearer secret for every mutation.
+  function connectOperator(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const secret = secretInput.trim()
+    if (!secret) {
+      setError('Enter the operator secret configured on the API server.')
+      return
+    }
+    setOperatorSecret(secret)
+    setSecretInput('')
+    setError('')
+  }
+
+  function disconnectOperator() {
+    setOperatorSecret('')
+    setSecretInput('')
+    setError('')
+  }
+
   // --------------------------------------------------
   // ACTION OPERATIONS
   // --------------------------------------------------
@@ -143,7 +165,7 @@ function ActionsPage() {
 
     if (!confirmed) return
 
-    void executeOperation(action.id, () => approveAction(action.id))
+    void executeOperation(action.id, () => approveAction(action.id, operatorSecret))
   }
 
   function handleReject(action: ActionWithIncident) {
@@ -154,7 +176,7 @@ function ActionsPage() {
     if (!reason?.trim()) return
 
     void executeOperation(action.id, () =>
-      rejectAction(action.id, reason.trim()),
+      rejectAction(action.id, reason.trim(), operatorSecret),
     )
   }
 
@@ -181,7 +203,7 @@ function ActionsPage() {
     if (!confirmed) return
 
     void executeOperation(action.id, () =>
-      reconcileAction(action.id, decision, reason.trim()),
+      reconcileAction(action.id, decision, reason.trim(), operatorSecret),
     )
   }
 
@@ -259,8 +281,38 @@ function ActionsPage() {
         </button>
       </div>
 
+      <section className="panel action-auth-panel">
+        {!operatorSecret ? (
+          <form onSubmit={connectOperator}>
+            <div>
+              <strong>Operator authorization</strong>
+              <p>Enter the shared operator secret to enable approve, reject and reconciliation operations.</p>
+            </div>
+            <div className="action-auth-fields">
+              <input
+                type="password"
+                value={secretInput}
+                onChange={(event) => setSecretInput(event.target.value)}
+                placeholder="Operator secret"
+                autoComplete="off"
+                aria-label="Operator secret"
+              />
+              <button type="submit" className="filter-button">Unlock actions</button>
+            </div>
+          </form>
+        ) : (
+          <div className="action-auth-connected">
+            <div>
+              <strong>Operator credential entered</strong>
+              <p>The API verifies this credential for each operation. It is held in this page's memory only.</p>
+            </div>
+            <button type="button" className="filter-button" onClick={disconnectOperator}>Disconnect</button>
+          </div>
+        )}
+      </section>
+
       {error && (
-        <div className="api-error">
+        <div className="api-error" role="alert">
           {error}
         </div>
       )}
@@ -451,7 +503,7 @@ function ActionsPage() {
                           {canApprove && (
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || !operatorSecret}
                               className="action-control approve"
                               onClick={() => handleApprove(action)}
                               title="Approve action"
@@ -463,7 +515,7 @@ function ActionsPage() {
                           {canReject && (
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || !operatorSecret}
                               className="action-control reject"
                               onClick={() => handleReject(action)}
                               title="Reject action"
@@ -476,7 +528,7 @@ function ActionsPage() {
                             <>
                               <button
                                 type="button"
-                                disabled={busy}
+                                disabled={busy || !operatorSecret}
                                 className="action-control approve"
                                 onClick={() =>
                                   handleReconcile(action, 'CONFIRMED_SUCCESS')
@@ -488,7 +540,7 @@ function ActionsPage() {
 
                               <button
                                 type="button"
-                                disabled={busy}
+                                disabled={busy || !operatorSecret}
                                 className="action-control reject"
                                 onClick={() =>
                                   handleReconcile(
