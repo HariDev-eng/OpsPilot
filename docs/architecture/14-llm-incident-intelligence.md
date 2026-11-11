@@ -1,5 +1,7 @@
 # 14 — LLM Incident Intelligence
 
+> **V1 runtime status (2026-11-11):** The deployed API is configured with **Cloudflare Workers AI**: `@cf/google/gemma-4-26b-a4b-it` for incident analysis and `@cf/baai/bge-base-en-v1.5` for 768-dimensional embeddings. PostgreSQL + pgvector stores and retrieves knowledge chunks. Ollama adapters remain optional/local implementations in the codebase; they are not wired by the deployed `cmd/server` runtime. A completed production analysis and persisted history record have been verified using synthetic incident data.
+
 ## 1. Objective
 
 Introduce an AI-powered incident intelligence layer that analyzes detected incidents using structured incident information, historical events, and retrieved technical knowledge.
@@ -14,7 +16,7 @@ The purpose of this layer is to help operators understand:
 - What should the operator investigate next?
 - What risks should be considered before taking action?
 
-The system combines Retrieval-Augmented Generation (RAG) with a locally hosted Large Language Model (LLM).
+The system combines Retrieval-Augmented Generation (RAG) with provider-backed model inference. In the current deployment, embeddings and generation are sent to Cloudflare Workers AI; the Go interfaces keep provider-specific HTTP details separate from context construction and analysis validation.
 
 Instead of sending an incident description directly to an LLM and accepting its response, OpsPilot constructs a context containing relevant information and validates the generated response before making it available to downstream components.
 
@@ -51,8 +53,8 @@ The LLM is an analytical component, not an execution authority.
               Prompt Builder
                      |
                      v
-               Ollama LLM
-                llama3.2
+          Cloudflare Workers AI
+               Gemma 4
                      |
                      v
              Structured JSON
@@ -147,41 +149,42 @@ The abstraction separates embedding generation from the provider implementation.
 
 This allows the application to change embedding providers without coupling the retrieval pipeline to one particular model.
 
-### 3.3 OllamaEmbeddingProvider
+### 3.3 Deployed Cloudflare Embedding Provider
 
-The current local embedding implementation uses Ollama with:
+The deployed runtime uses Cloudflare Workers AI with:
 
-`nomic-embed-text`
-
-Configuration:
+`@cf/baai/bge-base-en-v1.5`
 
 | Property | Value |
 |---|---|
-| Provider | Ollama |
-| Model | `nomic-embed-text` |
+| Provider | Cloudflare Workers AI |
+| Model | `@cf/baai/bge-base-en-v1.5` |
 | Embedding dimensions | 768 |
-| API | `/api/embed` |
-| Runtime | Local Ollama |
+| API | Cloudflare Workers AI REST API |
+| Runtime | Hosted inference |
 
-The embedding provider converts input text into a 768-dimensional vector.
+The model returns 768-dimensional vectors, matching the current `knowledge_chunks.embedding` schema.
 
 Conceptually:
 
 ```text
-Input Text
+Input text
     |
     v
-Ollama Embedding API
+Cloudflare Workers AI
     |
     v
-nomic-embed-text
+BGE base embeddings
     |
     v
 768-dimensional vector
+    |
+    v
+PostgreSQL + pgvector
 ```
 
-The resulting vector is stored in PostgreSQL using pgvector.
-
+An Ollama embedding adapter is also present for local development/provider experimentation, but it is not selected by the deployed server wiring.
+ 
 ### 3.4 LLMProvider
 
 The LLM provider abstracts incident analysis from a particular model implementation.
@@ -196,26 +199,26 @@ The abstraction allows the application to separate:
 - Response parsing.
 - Validation.
 
-### 3.5 OllamaLLM
+### 3.5 Deployed Cloudflare Gemma LLM
 
-Current implementation:
+The current server wiring selects Cloudflare Workers AI:
 
 | Property | Value |
 |---|---|
-| Provider | Ollama |
-| Model | `llama3.2:latest` |
-| API | `/api/generate` |
-| Output mode | JSON |
+| Provider | Cloudflare Workers AI |
+| Model | `@cf/google/gemma-4-26b-a4b-it` |
+| API | Cloudflare Workers AI REST API |
+| Output | Structured incident-analysis JSON |
 | Streaming | Disabled |
 | Request timeout | 120 seconds |
-| Runtime | Local Ollama |
+| Runtime | Hosted inference |
 
-The application sends a structured prompt containing the incident context and expected response format.
+The adapter supports the Cloudflare response formats used by the model, extracts a JSON object from the model content, and deserializes it into the application-defined `IncidentAnalysis` structure. Backend validation checks required fields, evidence source references and action policies before the analysis is accepted.
 
-The model returns JSON, which is deserialized into the application-defined analysis structure.
+Gemma 4 may wrap JSON in Markdown fences or explanatory text; the adapter extracts the first complete JSON object before decoding. Prompt instructions are not treated as a substitute for server-side validation.
 
----
-
+The existing Ollama LLM adapter remains an optional local implementation and is not used by the deployed `cmd/server` initialization.
+ 
 ## 4. Knowledge Base Architecture
 
 The knowledge base provides technical information that can help the LLM reason about an incident.
@@ -260,7 +263,7 @@ The knowledge ingestion process converts documents into vector representations s
 - Four knowledge documents.
 - One chunk per document.
 - 768-dimensional embeddings.
-- Local Ollama embedding generation.
+- Local Cloudflare BGE embedding generation.
 - PostgreSQL vector storage.
 
 The current knowledge base is intentionally small.
@@ -906,7 +909,7 @@ go build ./...
 
 The current AI implementation and its validation tests pass.
 
-Live Ollama inference has also been successfully tested.
+Live Cloudflare Workers AI inference has been successfully tested against a synthetic production incident.
 
 ---
 
@@ -915,19 +918,19 @@ Live Ollama inference has also been successfully tested.
 | Component | Implementation | Status |
 |---|---|---|
 | EmbeddingProvider | Go interface | Implemented |
-| Ollama embeddings | nomic-embed-text | Implemented |
+| Cloudflare embeddings | BGE base en v1.5 | Implemented in deployed runtime |
 | Vector storage | PostgreSQL + pgvector | Implemented |
 | Knowledge ingestion | Document embedding and storage | Implemented |
 | Vector retrieval | Cosine-distance search | Implemented |
 | ContextBuilder | Incident, events and knowledge | Implemented |
 | LLMProvider | Provider abstraction | Implemented |
-| OllamaLLM | llama3.2 | Implemented |
+| CloudflareLLM | Gemma 4 26B A4B IT | Implemented in deployed runtime |
 | Structured output | JSON response | Implemented |
 | Analysis validation | Backend validation | Implemented |
 | Evidence validation | Source reference validation | Implemented |
 | Action validation | Type and approval validation | Implemented |
-| Persistent analysis history | Database persistence | Not implemented |
-| Production analysis API | Operator-facing analysis endpoint | Not implemented |
+| Persistent analysis history | PostgreSQL AI analysis records | Implemented |
+| Incident analysis API | Analyze, latest and history endpoints | Implemented |
 | Semantic claim verification | Claim-level grounding | Not implemented |
 | RAG evaluation framework | Retrieval and answer-quality evaluation | Not implemented |
 
@@ -935,16 +938,16 @@ Live Ollama inference has also been successfully tested.
 
 ## 16. Known Limitations
 
-1. Evidence references are verified, but semantic accuracy of claims is not guaranteed.
-2. Incident #11 currently contains only the triggering event rather than all events from its detection window.
-3. Confidence is model-reported and not statistically calibrated.
-4. The knowledge base currently contains only four documents, each represented by one chunk.
-5. Retrieval currently uses top-three vector results without a production-grade reranking or evaluation pipeline.
-6. Action classification is validated but does not independently establish that a natural-language recommendation is safe.
-7. The backend operation registry is separate from LLM action classification.
-8. AI analysis is not yet persisted as a complete historical record.
-9. A production operator-facing AI analysis API has not been implemented.
-10. Production-grade authentication, authorization, and AI usage auditing remain future work.
+1. Evidence source IDs are validated against the supplied incident context, but semantic accuracy of every natural-language claim is not guaranteed.
+2. Confidence is model-reported and is not statistically calibrated.
+3. The V1 knowledge corpus and chunking strategy are small; richer document ingestion, chunk metadata and versioning remain future work.
+4. Retrieval currently uses top-three vector results; there is no production-grade reranking or automated retrieval evaluation.
+5. Prompt instructions do not guarantee schema compliance; parsing and backend validation are required.
+6. Action type and approval policy validation does not by itself prove that a recommended operation is safe. The backend operation allowlist remains the execution boundary.
+7. Production-grade multi-user authentication, authorization, role separation and AI usage auditing remain future work. The deployed action mutation routes must be protected before real operator use.
+8. Live inference depends on Cloudflare availability, account limits and configured credentials.
+9. The current single-process Render deployment runs the API, outbox publisher and incident consumer together for cost reasons; this is not an independently scalable high-availability topology.
+10. The deployed prototype was exercised with synthetic event data. It has not been validated against real production incidents or a formal AI quality benchmark.
 
 ---
 
