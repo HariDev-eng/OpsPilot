@@ -698,38 +698,26 @@ secret rotation and management
 comprehensive audit logging and monitoring
 ```
 
-The public repository also contains a tracked database dump that has not yet been inspected. Its contents must be reviewed locally; remove the artifact from the repository and history if it contains application data, credentials or other non-public information.
+The database dump has been removed from the current `main` tree and dump patterns are now ignored. The blob may still exist in earlier Git history. Inspect the local copy; if it contains application data, credentials or other non-public information, rewrite repository history and rotate any exposed credentials.
 
 ---
 
-# 20. UI Gap
+# 20. V1 Operator UI — Implemented
 
-The final UI should become an OpsPilot Control Center.
-
-Planned areas:
+V1 includes a deployed React operator interface with:
 
 ```text
-Dashboard
-Incident Details
-AI Analysis
-Event Explorer
-Runbooks / Knowledge Base
+Overview dashboard
+Incident list and incident details
+AI analysis, evidence and recommendations
+Action management and approval state
+Integration management
+System health
+Help and architecture guidance
+Responsive mobile layouts
 ```
 
-Incident detail should eventually show:
-
-```text
-Severity
-Status
-Timeline
-Related events
-Evidence
-AI analysis
-Likely causes
-Confidence
-Recommendations
-Approval actions
-```
+The UI is usable as a portfolio demonstration. Future UX work includes richer event exploration, knowledge-base authoring, AI analysis comparisons, accessible interaction testing and deeper mobile-device verification.
 
 ---
 
@@ -924,50 +912,29 @@ Kubernetes deployment
 
 # 26. Engineering Principle
 
-We should never say:
+OpsPilot V1 now includes an implemented and deployed AI-assisted incident-analysis pipeline. The accurate description is:
 
 ```text
-OpsPilot has AI-powered root-cause analysis
+OpsPilot is an incident-intelligence prototype that combines
+event-driven incident detection with RAG-based AI analysis,
+evidence-reference validation and controlled response recommendations.
 ```
 
-until the AI pipeline actually exists.
-
-Until then, the accurate description is:
-
-```text
-OpsPilot is an incident intelligence platform
-with a backend foundation designed to support
-AI-powered incident analysis and response.
-```
-
-Once RAG + LLM + evidence-backed analysis + approval are implemented and verified, the stronger claim becomes accurate.
+The system must not describe a model-reported likely cause as a confirmed root cause. Evidence references are validated against supplied sources, but semantic claim accuracy and confidence calibration remain open evaluation problems.
 
 ---
 
-# 27. Final Development Strategy
+# 27. Recruiter-Readiness Strategy
 
-The remaining project should proceed in this order:
+V1's main workflow is deployed and demonstrated. The next work should focus on hardening and verification rather than adding another large feature:
 
 ```text
-Day 6
-AI Context + RAG
-        ↓
-Day 7
-LLM Incident Intelligence
-        ↓
-Day 8
-AI Response + Human Approval
-        ↓
-Day 9
-Production Hardening + Testing
-        ↓
-Day 10
-Kubernetes Deployment
-        ↓
-Day 11
-UI + Final Deployment + Portfolio
+1. Secure every state-changing and billable API endpoint
+2. Inspect and purge sensitive artifacts from Git history if needed
+3. Expand automated tests for failure and recovery paths
+4. Add RAG/LLM quality evaluation and calibrated confidence
+5. Improve observability, rate limiting and deployment resilience
+6. Consider separate API/consumer scaling and high availability
 ```
 
-The important idea is that the AI layer is being built **on top of a reliable event and incident foundation**, rather than putting an LLM on top of an unreliable application.
-
-That is what makes OpsPilot a serious backend + applied-AI engineering project rather than simply an LLM demo.
+This keeps the distinction clear between a working portfolio prototype and a production-grade incident response platform.
