@@ -200,7 +200,7 @@ The [architecture documentation index](docs/architecture/readme.md) links the de
 ## Known limitations and next hardening steps
 
 - The action approve/reject/reconcile endpoints use a shared Bearer secret and configured audit actor label. This is only a single-operator V1 gate; add real user identity, role-based authorization and protect all state-changing and billable endpoints before production.
-- Review and remove database backups or other generated artifacts from the public repository and Git history; rotate any credentials if a dump contains them.
+- The uninspected database dump has been removed from the current `main` tree and backup patterns are ignored. Inspect any local copy; if it contains non-public data or credentials, rewrite Git history and rotate exposed credentials.
 - Expand tests for event ingestion, outbox recovery, Kafka retry/DLQ, incident correlation, AI pipeline failures and HTTP authorization.
 - Add AI/RAG quality evaluation, calibrated confidence and claim-level grounding.
 - Improve observability, rate limiting, deployment resilience and recovery behavior.
