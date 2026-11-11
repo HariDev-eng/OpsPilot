@@ -115,26 +115,61 @@ async function postRequest<T>(
   return response.json() as Promise<T>
 }
 
-export function approveAction(id: number): Promise<void> {
-  return postRequest<void>(`/actions/${id}/approve`)
+async function authorizedActionRequest(
+  path: string,
+  operatorSecret: string,
+  body?: Record<string, unknown>,
+): Promise<void> {
+  const secret = operatorSecret.trim()
+  if (!secret) {
+    throw new Error('Connect with the operator secret before performing this action.')
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      'Content-Type': 'application/json',
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  })
+
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || `Action request failed: ${response.status}`)
+  }
+}
+
+export function approveAction(
+  id: number,
+  operatorSecret: string,
+): Promise<void> {
+  return authorizedActionRequest(`/actions/${id}/approve`, operatorSecret)
 }
 
 export function rejectAction(
   id: number,
   reason: string,
+  operatorSecret: string,
 ): Promise<void> {
-  return postRequest<void>(`/actions/${id}/reject`, { reason })
+  return authorizedActionRequest(
+    `/actions/${id}/reject`,
+    operatorSecret,
+    { reason },
+  )
 }
 
 export function reconcileAction(
   id: number,
   decision: 'CONFIRMED_SUCCESS' | 'CONFIRMED_NOT_PERFORMED' | 'UNKNOWN',
   reason: string,
+  operatorSecret: string,
 ): Promise<void> {
-  return postRequest<void>(`/actions/${id}/reconcile`, {
-    decision,
-    reason,
-  })
+  return authorizedActionRequest(
+    `/actions/${id}/reconcile`,
+    operatorSecret,
+    { decision, reason },
+  )
 }
 
 
