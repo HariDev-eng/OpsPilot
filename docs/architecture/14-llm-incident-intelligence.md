@@ -189,7 +189,7 @@ An Ollama embedding adapter is also present for local development/provider exper
 
 The LLM provider abstracts incident analysis from a particular model implementation.
 
-The current implementation uses a locally hosted Ollama model.
+The current deployed implementation uses Cloudflare Workers AI. The Ollama adapter is retained as an optional local provider implementation.
 
 The abstraction allows the application to separate:
 
@@ -678,7 +678,7 @@ The subsequent action-management and execution workflow is documented in:
 The LLM response must pass multiple validation stages.
 
 ```text
-Ollama Response
+Cloudflare Workers AI Response
       |
       v
 JSON Parsing
@@ -818,7 +818,7 @@ Potential failures include:
 
 | Failure | Impact | Required behavior |
 |---|---|---|
-| Ollama unavailable | No LLM analysis | Return an inference error |
+| Cloudflare Workers AI unavailable | No LLM analysis | Return an inference error |
 | Embedding service unavailable | Retrieval query cannot be embedded | Return a retrieval error |
 | Malformed JSON | Analysis cannot be parsed | Reject response |
 | Missing evidence ID | Unsupported reference | Reject analysis |
@@ -829,17 +829,13 @@ Potential failures include:
 
 ### Timeout
 
-The current Ollama LLM request uses a 120-second timeout.
+The current Cloudflare LLM adapter uses a 120-second HTTP timeout.
 
 The system should not allow an unbounded model request to block incident processing indefinitely.
 
 ### Model availability
 
-Ollama runs locally, so the model-serving environment must be available before inference can succeed.
-
-The current implementation is suitable for local development and controlled demonstrations.
-
-Production deployment requires resource planning, model health monitoring, capacity management, and failure isolation.
+Cloudflare Workers AI is a hosted dependency, so inference requires valid account credentials, network connectivity, available model capacity and sufficient account quota. The service must handle provider errors and timeouts without treating an unsuccessful inference as a completed analysis.
 
 ---
 
@@ -850,7 +846,7 @@ Production deployment requires resource planning, model health monitoring, capac
 Verified:
 
 - Local embedding generation.
-- Ollama communication.
+- Cloudflare Workers AI communication.
 - Vector generation.
 - Expected embedding dimensionality.
 
@@ -876,7 +872,7 @@ Verified:
 
 Verified:
 
-- Ollama inference.
+- Cloudflare Workers AI inference.
 - Structured JSON generation.
 - Response deserialization.
 - Incident analysis validation.
@@ -1003,8 +999,8 @@ The LLM Incident Intelligence layer depends on several other OpsPilot components
 | Redis | Supports fast incident-state operations |
 | PostgreSQL | Stores incidents, events and knowledge |
 | pgvector | Supports semantic knowledge retrieval |
-| Ollama embeddings | Converts text into vectors |
-| Ollama LLM | Generates incident analysis |
+| Cloudflare BGE embeddings | Converts text into vectors |
+| Cloudflare Gemma 4 LLM | Generates incident analysis |
 | Action management | Receives validated recommendations |
 
 The architecture documentation is divided into separate documents to keep responsibilities clear.
