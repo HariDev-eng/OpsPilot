@@ -124,7 +124,7 @@ Implemented routes:
 | POST | `/api/v1/actions/{id}/reject` | Reject an action |
 | POST | `/api/v1/actions/{id}/reconcile` | Record an operator reconciliation decision |
 
-The current development implementation uses a temporary hardcoded operator identity. Authentication and role-based authorization are required before production exposure.
+The V1 HTTP routes require the shared `OPSPILOT_OPERATOR_SECRET` Bearer credential and attach the configured `OPSPILOT_OPERATOR_ID` audit label to the request context. The default label is `portfolio-operator`; set a specific operator label in the deployment environment. This is a single-operator gate, not multi-user authentication or RBAC.
 
 ### 3.4 ExecutionService
 
@@ -537,7 +537,7 @@ All reconciliation integration scenarios passed against the PostgreSQL database.
 
 ## 14. Known Limitations and Future Hardening
 
-1. **Authentication:** The current handler uses a temporary hardcoded development actor identity. Production authentication and RBAC are not implemented.
+1. **Authentication:** Action mutations are protected by a shared Bearer secret in V1. Production authentication, user sessions and RBAC are not implemented.
 2. **External idempotency:** Real executors must use downstream idempotency mechanisms to prevent duplicate external operations.
 3. **Execution leases:** Fixed-timeout recovery should be upgraded with leases or heartbeats.
 4. **Reconciliation evidence:** The operator's reason is recorded, but OpsPilot does not independently verify external provider state.
