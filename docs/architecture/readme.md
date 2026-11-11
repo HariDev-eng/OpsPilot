@@ -39,4 +39,4 @@ Each document should explain:
 
 OpsPilot currently implements event ingestion, transactional outbox publishing, Kafka-based event processing, incident detection, Redis projections, RAG-based context retrieval, LLM incident analysis, and controlled action execution with human approval and reconciliation.
 
-Production hardening, deployment and the operator interface remain planned work.
+V1 implements the deployed event-to-incident pipeline, Cloudflare-powered RAG/LLM analysis, persisted analysis history, action lifecycle APIs and a deployed React operator interface. Authentication/authorization hardening, broader automated tests, AI/RAG evaluation, observability and high-availability deployment remain open work.
